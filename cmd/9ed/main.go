@@ -37,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := tui.NewApp(newModel(path, src, seg.Segment(src)), 80, 24)
+	app := tui.NewApp(newModel(path, src, seg, seg.Segment(src)), 80, 24)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
 		os.Exit(1)
@@ -65,7 +65,8 @@ func segmenterFor(path string) (deck.Segmenter, error) {
 // tui/docs/DESIGN.md §3.1.
 type model struct {
 	path  string
-	src   []byte // original file content, never mutated
+	src   []byte // original file content, never mutated except by a completed Save
+	seg   deck.Segmenter
 	cards []deck.Card
 
 	cursor  int
@@ -73,12 +74,15 @@ type model struct {
 
 	// edited holds a card's current text once it diverges from its
 	// original src[Span[0]:Span[1]] slice — sparse, since most cards in
-	// a session are never touched. Keyed by index into cards.
+	// a session are never touched. Keyed by index into cards. Cleared
+	// on a successful Save, since src/cards are resynced to it then.
 	edited map[int]string
+
+	saveErr string // last save's error, if any; cleared by the next successful save
 }
 
-func newModel(path string, src []byte, cards []deck.Card) *model {
-	return &model{path: path, src: src, cards: cards}
+func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card) *model {
+	return &model{path: path, src: src, seg: seg, cards: cards}
 }
 
 // cardBody returns card i's current text: the edited version if one
@@ -96,6 +100,35 @@ func (m *model) setEdited(i int, value string) {
 		m.edited = make(map[int]string)
 	}
 	m.edited[i] = value
+}
+
+// dirtyMark is the whole-deck "unsaved" indicator for the status line —
+// separate from, and in addition to, the per-card '*' markers in
+// navView, which show *which* cards changed rather than just whether
+// anything did.
+func (m *model) dirtyMark() string {
+	if len(m.edited) > 0 {
+		return " [unsaved]"
+	}
+	return ""
+}
+
+// helpStyle renders the status line in the theme's Error color after a
+// failed save, Muted otherwise.
+func (m *model) helpStyle() cell.Style {
+	if m.saveErr != "" {
+		return cell.Style{Fg: style.DefaultDark().Error}
+	}
+	return cell.Style{Fg: cell.ANSIColor(8)}
+}
+
+// statusLine appends the last save error (if any) to rest, so a failed
+// save is visible without a dedicated status area.
+func (m *model) statusLine(rest string) string {
+	if m.saveErr != "" {
+		return rest + "  save failed: " + m.saveErr
+	}
+	return rest
 }
 
 func (m *model) Init() tui.Cmd { return nil }
@@ -137,10 +170,28 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
 
+	case saveDoneMsg:
+		if v.err != nil {
+			m.saveErr = v.err.Error()
+			break
+		}
+		m.saveErr = ""
+		m.src, m.cards, m.edited = v.src, v.cards, nil
+		if m.cursor >= len(m.cards) {
+			m.cursor = max(len(m.cards)-1, 0)
+		}
+
 	case input.KeyEvent:
 		// Ctrl+C is a global "get me out of here" regardless of mode.
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 'c' {
 			return m, tui.Quit()
+		}
+		// Ctrl+S saves from either mode — confirmed safe to let TextArea
+		// also see it: handleKey's literal-insert case explicitly
+		// excludes ModCtrl, and nothing else in its switch matches 's',
+		// so it's a no-op there, never a stray inserted character.
+		if v.Mod&input.ModCtrl != 0 && v.Rune == 's' {
+			return m, m.saveCmd()
 		}
 		if m.editing {
 			// Plain Esc (unmodified) is Edit->Nav. It deliberately is
@@ -180,8 +231,8 @@ func (m *model) navView() tui.Node {
 	}
 
 	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: style.DefaultDark()}, listEvent)
-	help := tui.Text(fmt.Sprintf("%s  (%d cards)  —  j/k or ↑/↓: move   enter: edit   q: quit", m.path, len(m.cards)),
-		cell.Style{Fg: cell.ANSIColor(8)})
+	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k or ↑/↓: move   enter: edit   ^s: save   q: quit",
+		m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),
@@ -209,8 +260,8 @@ func (m *model) editView() tui.Node {
 		// configured release key.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
 	})
-	help := tui.Text(fmt.Sprintf("%s  [%s]  —  esc: back to nav", m.path, card.Kind),
-		cell.Style{Fg: cell.ANSIColor(8)})
+	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^s: save", m.path, m.dirtyMark(), card.Kind)),
+		m.helpStyle())
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), textarea),
