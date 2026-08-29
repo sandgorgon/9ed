@@ -1,0 +1,5 @@
+preamble  [0,51) "A short intro paragraph before the first heading."
+heading   [51,164) "Getting Started"
+heading   [164,219) "Configuration"
+heading   [219,277) "Advanced options"
+heading   [277,313) "Reference"
