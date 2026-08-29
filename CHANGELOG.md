@@ -17,3 +17,13 @@
   instead of crashing. Reassembly inserts a newline between cards when an
   edit strips one, so a card's edit can never silently glue onto the next
   card's first line (bug caught interactively, now a regression test).
+- `cmd/9ed`: 9P server surface (M5) — every running buffer serves
+  `/tag` and `/cards/<n>/{title,body,lang}` read-only over a Unix domain
+  socket (`$XDG_RUNTIME_DIR/9ed/<pid>.sock`, 0600) plus a discovery file
+  naming the edited path, best-effort (a failure to start degrades to no
+  9P surface, not a refusal to edit). `bufferView` is the thread-safe
+  seam publishing the live deck for the server's own goroutine to read,
+  since it runs concurrently with tui's single-threaded event loop —
+  verified under `-race`, plus a real end-to-end test dialing the actual
+  9P wire protocol (`client.Dial("unix", ...)`) rather than calling the
+  filesystem methods directly.

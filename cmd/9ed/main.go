@@ -20,28 +20,49 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+// run holds everything that needs a deferred cleanup to actually fire
+// — os.Exit does not run deferred calls, so main itself must never
+// call it directly once there's a defer in scope (see serveBuffer's
+// stop).
+func run() int {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: 9ed <file>")
-		os.Exit(1)
+		return 1
 	}
 	path := os.Args[1]
 
 	src, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
-		os.Exit(1)
+		return 1
 	}
 	seg, err := segmenterFor(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
-		os.Exit(1)
+		return 1
 	}
 
-	app := tui.NewApp(newModel(path, src, seg, seg.Segment(src)), 80, 24)
+	m := newModel(path, src, seg, seg.Segment(src))
+	m.view.publish(m.path, m.src, m.cards, m.edited)
+
+	// The 9P surface is best-effort, not required to edit: a runtime
+	// dir we can't create/listen on (e.g. an unwritable $XDG_RUNTIME_DIR)
+	// degrades to "no scripting API this session," not a refusal to edit.
+	if stop, err := serveBuffer(m.view, path); err != nil {
+		fmt.Fprintln(os.Stderr, "9ed: warning: 9p server disabled:", err)
+	} else {
+		defer stop()
+	}
+
+	app := tui.NewApp(m, 80, 24)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // segmenterFor picks a deck.Segmenter by file extension. Only Go and
@@ -79,10 +100,16 @@ type model struct {
 	edited map[int]string
 
 	saveErr string // last save's error, if any; cleared by the next successful save
+
+	// view publishes path/src/cards/edited for the 9P server (its own
+	// goroutine — see bufferview.go/fs9p.go) to read safely; called
+	// after Update handles anything that changes one of those fields.
+	// cursor/editing/saveErr are pure UI state, not published.
+	view *bufferView
 }
 
 func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card) *model {
-	return &model{path: path, src: src, seg: seg, cards: cards}
+	return &model{path: path, src: src, seg: seg, cards: cards, view: &bufferView{}}
 }
 
 // cardBody returns card i's current text: the edited version if one
@@ -169,6 +196,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
+		m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	case saveDoneMsg:
 		if v.err != nil {
@@ -180,6 +208,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		if m.cursor >= len(m.cards) {
 			m.cursor = max(len(m.cards)-1, 0)
 		}
+		m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	case input.KeyEvent:
 		// Ctrl+C is a global "get me out of here" regardless of mode.
