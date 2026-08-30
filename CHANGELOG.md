@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Refined the earlier `9auth` conclusion: checked `9sh`'s actual `remote`/
+  `ns` packages (not assumed) and confirmed 9ed should never adopt
+  `9auth`/TLS directly — `9sh` already has a complete TCP+TLS+9auth
+  "network gateway" pattern (`dial`/`bind`/`-listen`) that would make a
+  9ed buffer remotely reachable with zero changes to 9ed itself, once one
+  narrow gap closes on `9sh`'s side: `remote.Dial` is TCP-only, so there's
+  no way today to dial a local Unix-socket 9P server (like 9ed's) and
+  `BindFS` it into a namespace for `-listen` to re-export. Filed
+  `upstream-specs/9sh-bind-local-unix-socket-9p-server.md`
+  (github.com/sandgorgon/9sh#2) proposing `remote.DialUnix` (no TLS
+  handshake — the socket's own permissions are already the trust
+  boundary, same as `9sh`'s existing `/local` `dirfs` bootstrap bind) plus
+  a matching `dialUnix(path)` kyu builtin; `bind`'s existing `MountHandle`
+  routing needs no changes, since it's already fully general over any
+  `server.FileSystem`.
 - `cmd/9ed`: precise go-to-line and line numbers (M12), the two items
   left blocked on `tui` after M11. `{count}G` now places the cursor
   exactly on that line (not just at the top of its card) via `tui`
