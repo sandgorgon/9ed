@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Investigated `9auth` integration (the last item on the open-work list)
+  and concluded it isn't actionable yet, rather than forcing it in: `9auth`
+  provides TLS fingerprint-based peer trust for a *network*-exposed
+  server, and its only real consumer, `9vcs` (`cmd/9vcs/serve.go`/
+  `sync.go`), uses it exclusively for TCP remote push/pull — never for
+  local filesystem access. 9ed's 9P server is deliberately Unix-socket-
+  only, standalone-only (see `upstream-specs/9p-9pc-unix-socket.md`'s own
+  rationale for why); there's no existing or planned feature exposing a
+  buffer's 9P server over a network for `9auth`'s trust model to
+  authenticate. Revisit once a real "remote buffer" feature is scoped,
+  not before.
 - `cmd/9ed`: write-side 9P surface (M8) — `/cards/<n>/body` is now
   writable (`title`/`lang`/`tag` stay read-only, matching what the
   existing TextArea-based edit flow already lets a user change). Opening
