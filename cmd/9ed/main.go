@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 
 	"github.com/sandgorgon/tui/cell"
 	"github.com/sandgorgon/tui/input"
@@ -107,6 +109,20 @@ type model struct {
 	// unconditionally at the top of Update instead), so an unrelated
 	// 'g' somewhere later never falsely completes it.
 	pendingG bool
+
+	// pendingCount accumulates digit runes typed before 'G' — vim's
+	// "{count}G" jumps to line {count} instead of the last card (see
+	// goto.go) — reset the same way, and for the same reason, as
+	// pendingG; see cancelPendingNav.
+	pendingCount string
+
+	// searching/query/preSearchCursor are the Nav-mode typeahead filter
+	// (see search.go): '/' starts it, preSearchCursor is m.cursor at
+	// that point so Esc can restore it, and query is what's been typed
+	// so far.
+	searching       bool
+	query           string
+	preSearchCursor int
 
 	// edited holds a card's current text once it diverges from its
 	// original src[Span[0]:Span[1]] slice — sparse, since most cards in
@@ -227,12 +243,12 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case navMsg:
 		switch v {
 		case navUp:
-			m.pendingG = false
+			m.cancelPendingNav()
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case navDown:
-			m.pendingG = false
+			m.cancelPendingNav()
 			if m.cursor < len(m.cards)-1 {
 				m.cursor++
 			}
@@ -249,7 +265,10 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// *other* branch below (never in the raw KeyEvent case's
 			// harmless fall-through, which is exactly what a lone 'g'
 			// or 'j'/'k'/'o'/'O'/Enter's redundant raw echo hits)
-			// avoids that.
+			// avoids that. A pending count doesn't combine with 'g'
+			// either way ("2g" isn't a sequence 9ed recognizes), so
+			// it's simply dropped here.
+			m.pendingCount = ""
 			if m.pendingG {
 				m.cursor = 0
 				m.pendingG = false
@@ -257,18 +276,33 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				m.pendingG = true
 			}
 		case navLast:
-			m.pendingG = false
+			// A pending count makes 'G' jump to that line instead of
+			// the last card — vim's "{count}G" — see goto.go.
+			if m.pendingCount != "" {
+				n, _ := strconv.Atoi(m.pendingCount)
+				m.pendingCount = ""
+				m.goToLine(n)
+				break
+			}
+			m.cancelPendingNav()
 			m.cursor = max(len(m.cards)-1, 0)
 		case navPageUp:
-			m.pendingG = false
+			m.cancelPendingNav()
 			m.cursor = max(m.cursor-navPageSize, 0)
 		case navPageDown:
-			m.pendingG = false
+			m.cancelPendingNav()
 			m.cursor = min(m.cursor+navPageSize, max(len(m.cards)-1, 0))
 		}
 
-	case enterEditMsg:
+	case navDigitMsg:
+		// Mirrors navG: a digit while pendingG was true cancels the
+		// g-sequence rather than combining with it ("g2" isn't
+		// meaningful either).
 		m.pendingG = false
+		m.pendingCount += string(rune(v))
+
+	case enterEditMsg:
+		m.cancelPendingNav()
 		if len(m.cards) > 0 {
 			m.editing = true
 		}
@@ -278,7 +312,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	case insertMsg:
-		m.pendingG = false
+		m.cancelPendingNav()
 		idx, pos := 0, 0
 		if len(m.cards) > 0 {
 			idx, pos = m.cursor+1, m.cards[m.cursor].Span[1]
@@ -300,6 +334,40 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 		v.result <- nil
 		return m, waitForP9Write(m.writes)
+
+	case startSearchMsg:
+		m.cancelPendingNav()
+		m.searching = true
+		m.query = ""
+		m.preSearchCursor = m.cursor
+
+	case searchInputMsg:
+		m.query += string(v.r)
+		m.snapCursorToFiltered()
+
+	case searchBackspaceMsg:
+		if m.query != "" {
+			r := []rune(m.query)
+			m.query = string(r[:len(r)-1])
+		}
+		m.snapCursorToFiltered()
+
+	case searchMoveMsg:
+		f := m.filteredIndices()
+		p := max(slices.Index(f, m.cursor), 0)
+		if next := p + v.delta; next >= 0 && next < len(f) {
+			m.cursor = f[next]
+		}
+
+	case cancelSearchMsg:
+		m.searching = false
+		m.cursor = m.preSearchCursor
+
+	case commitSearchMsg:
+		m.searching = false
+		if len(m.filteredIndices()) > 0 {
+			m.editing = true
+		}
 
 	case saveDoneMsg:
 		if v.err != nil {
@@ -323,7 +391,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		// excludes ModCtrl, and nothing else in its switch matches 's',
 		// so it's a no-op there, never a stray inserted character.
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 's' {
-			m.pendingG = false
+			m.cancelPendingNav()
 			return m, m.saveCmd()
 		}
 		if m.editing {
@@ -375,23 +443,48 @@ func (m *model) View() tui.Node {
 }
 
 func (m *model) navView() tui.Node {
-	titles := make([]string, len(m.cards))
-	for i, c := range m.cards {
+	indices := make([]int, len(m.cards))
+	for i := range indices {
+		indices[i] = i
+	}
+	if m.searching {
+		indices = m.filteredIndices()
+	}
+	titles := make([]string, len(indices))
+	cursorInList := 0
+	for pos, i := range indices {
+		c := m.cards[i]
 		mark := " "
 		if _, ok := m.edited[i]; ok {
 			mark = "*" // edited-but-unsaved indicator
 		}
-		titles[i] = fmt.Sprintf("%s%-9s %s", mark, c.Kind, c.Title)
+		titles[pos] = fmt.Sprintf("%s%-9s %s", mark, c.Kind, c.Title)
+		if i == m.cursor {
+			cursorInList = pos
+		}
 	}
 
-	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: style.DefaultDark()}, listEvent)
-	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   enter: edit   o/O: insert   ^s: save   q: quit",
-		m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
+	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: style.DefaultDark()}, m.listEvent)
+
+	var help tui.Node
+	if m.searching {
+		help = tui.Text(fmt.Sprintf("/%s  (%d match%s)  —  enter: go   esc: cancel", m.query, len(indices), pluralS(len(indices))), m.helpStyle())
+	} else {
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   o/O: insert   ^s: save   q: quit",
+			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
+	}
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),
 		tui.Child(layout.Length(1), help),
 	).Margin(1)
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }
 
 func (m *model) editView() tui.Node {
@@ -438,10 +531,17 @@ func (m *model) editView() tui.Node {
 	).Margin(1)
 }
 
-func listEvent(e input.Event) tui.Msg {
+// listEvent is the List widget's onEvent for Nav mode. While searching
+// (see search.go), every key means something different — all of
+// j/k/g/G/o/O/digits become query text — so that case is split off into
+// its own searchKeyEvent entirely, checked first.
+func (m *model) listEvent(e input.Event) tui.Msg {
 	ke, ok := e.(input.KeyEvent)
 	if !ok {
 		return nil
+	}
+	if m.searching {
+		return m.searchKeyEvent(ke)
 	}
 	switch {
 	case ke.Key == input.KeyUp || ke.Rune == 'k':
@@ -454,6 +554,10 @@ func listEvent(e input.Event) tui.Msg {
 		return insertBelow
 	case ke.Rune == 'O':
 		return insertAbove
+	case ke.Rune == '/':
+		return startSearchMsg{}
+	case ke.Rune >= '0' && ke.Rune <= '9':
+		return navDigitMsg(ke.Rune)
 	case ke.Rune == 'g':
 		return navG
 	case ke.Rune == 'G':
@@ -464,4 +568,12 @@ func listEvent(e input.Event) tui.Msg {
 		return navPageDown
 	}
 	return nil
+}
+
+// cancelPendingNav resets pendingG and pendingCount — see navG's own
+// case in Update for why this can't just happen unconditionally at the
+// top of Update instead (the M10 double-dispatch bug).
+func (m *model) cancelPendingNav() {
+	m.pendingG = false
+	m.pendingCount = ""
 }

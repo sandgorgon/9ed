@@ -226,10 +226,11 @@ func TestUpdateEscAbandonsEmptyInsert(t *testing.T) {
 }
 
 func TestListEventInsertKeys(t *testing.T) {
-	if got := listEvent(input.KeyEvent{Rune: 'o'}); got != insertBelow {
+	m := &model{}
+	if got := m.listEvent(input.KeyEvent{Rune: 'o'}); got != insertBelow {
 		t.Errorf("listEvent('o') = %v, want insertBelow", got)
 	}
-	if got := listEvent(input.KeyEvent{Rune: 'O'}); got != insertAbove {
+	if got := m.listEvent(input.KeyEvent{Rune: 'O'}); got != insertAbove {
 		t.Errorf("listEvent('O') = %v, want insertAbove", got)
 	}
 }

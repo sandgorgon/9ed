@@ -156,8 +156,9 @@ func TestListEventNavKeys(t *testing.T) {
 		{input.KeyEvent{Key: input.KeyPgUp}, navPageUp},
 		{input.KeyEvent{Key: input.KeyPgDown}, navPageDown},
 	}
+	m := &model{}
 	for _, tt := range tests {
-		if got := listEvent(tt.ev); got != tt.want {
+		if got := m.listEvent(tt.ev); got != tt.want {
 			t.Errorf("listEvent(%+v) = %v, want %v", tt.ev, got, tt.want)
 		}
 	}

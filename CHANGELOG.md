@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- `cmd/9ed`: Nav-mode typeahead filter and go-to-line (M11). `/` starts a
+  filter — every card whose title doesn't case-insensitively contain the
+  typed query drops out of the list live, `Up`/`Down` move within the
+  filtered set (not `j`/`k`, now query text), `Enter` jumps straight into
+  Edit mode on the match, `Esc` restores the pre-search cursor. Vim's
+  `{count}G` now works too — a digit sequence typed before `G` jumps to
+  that file line's containing card and opens it (`G` alone is unaffected,
+  still "last card"); this is the *coarse* half of "go to a line number"
+  from the running list — it opens the right card, not the exact line
+  within it, since (confirmed reading `widget.TextAreaOptions`)
+  `TextArea` has no way to set an initial cursor position. Filed
+  `upstream-specs/tui-cursor-offset-and-numeric-gutter.md` against `tui`
+  (github.com/sandgorgon/tui#11) for that and for "show line numbers"
+  (the existing unaccepted `Gutter` proposal in `tui`'s own repo is
+  single-rune, not a multi-digit column) — both stay blocked until that
+  lands upstream, not attempted here.
+  Designed the M10 double-dispatch bug fix in from the start this time
+  (a multi-digit count needs to survive several keypresses the same way
+  `gg` does): `pendingG`/`pendingCount` now share one `cancelPendingNav`
+  helper, called from every `Update` branch that's a real alternate
+  action, never from the raw-`KeyEvent` fall-through. Verified live in
+  tmux: the filtered list narrowing as you type, arrow-key movement
+  within it, `Esc`/`Enter` outcomes, zero-match display, `11G` landing on
+  the card actually containing line 11, and a stray digit interrupted by
+  an unrelated key not leaking into a later bare `G`.
 - `cmd/9ed`: four navigation/ergonomics items (M10) — an unknown file
   extension now opens as a single `"text"` card (`deck.PlainSegmenter`)
   instead of 9ed refusing to open the file at all; `gg`/`G` jump to the
