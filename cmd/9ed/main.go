@@ -124,6 +124,17 @@ type model struct {
 	query           string
 	preSearchCursor int
 
+	// gotoLineCursor/gotoLineCard (see goto.go's goToLine) are the rune
+	// offset within a card's body the cursor should open at, and which
+	// card that applies to — editView only honors gotoLineCursor when
+	// gotoLineCard == cursor, so every other edit-mode-entry/transition
+	// path (enterEditMsg, insertMsg, jumpCard, Esc) clears gotoLineCursor
+	// to nil, or a later plain Enter reopening the same card would
+	// incorrectly reapply a stale line target instead of the normal
+	// default cursor position.
+	gotoLineCursor *int
+	gotoLineCard   int
+
 	// edited holds a card's current text once it diverges from its
 	// original src[Span[0]:Span[1]] slice — sparse, since most cards in
 	// a session are never touched. Keyed by index into cards. Cleared
@@ -303,6 +314,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 	case enterEditMsg:
 		m.cancelPendingNav()
+		m.gotoLineCursor = nil
 		if len(m.cards) > 0 {
 			m.editing = true
 		}
@@ -313,6 +325,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 	case insertMsg:
 		m.cancelPendingNav()
+		m.gotoLineCursor = nil
 		idx, pos := 0, 0
 		if len(m.cards) > 0 {
 			idx, pos = m.cursor+1, m.cards[m.cursor].Span[1]
@@ -409,6 +422,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				// drop it either way, since an untouched zero-width
 				// span reassembles to nothing.
 				m.abandonEmptyInsert()
+				m.gotoLineCursor = nil
 				m.editing = false
 				return m, nil
 			}
@@ -497,11 +511,32 @@ func (m *model) editView() tui.Node {
 		highlights = goHighlights(body, theme)
 	}
 
+	// gotoLineCursor only applies to the specific card it was computed
+	// for (see goto.go's goToLine) — every other edit-mode-entry path
+	// clears it, but the card-match check here is the actual guard.
+	var initialCursor *int
+	if m.gotoLineCursor != nil && m.gotoLineCard == m.cursor {
+		initialCursor = m.gotoLineCursor
+	}
+
+	// Gutter shows the file-absolute line number (not restarting at 1
+	// per card) — the only version actually useful for correlating with
+	// go build/grep -n/stack trace output. lineIdx is 0-based within
+	// this card's own body (confirmed reading tui's gutterWidth/
+	// paintGutterRow), so it's offset by the card's own starting line,
+	// computed once here rather than per visible row.
+	firstLine := cardFirstLine(m.src, card.Span[0])
+	gutter := func(lineIdx int) (string, cell.Style) {
+		return strconv.Itoa(firstLine + lineIdx), theme.MutedText()
+	}
+
 	textarea := widget.TextArea(widget.TextAreaOptions{
-		Theme:      theme,
-		Value:      body,
-		Highlights: highlights,
-		OnChange:   func(v string) tui.Msg { return editChangedMsg{value: v} },
+		Theme:         theme,
+		Value:         body,
+		Highlights:    highlights,
+		InitialCursor: initialCursor,
+		Gutter:        gutter,
+		OnChange:      func(v string) tui.Msg { return editChangedMsg{value: v} },
 		// A ReleaseKey distinct from plain Esc — see the input.KeyEvent
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.

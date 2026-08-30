@@ -1,29 +1,49 @@
-// Go to a line number (M11): vim's "{count}G" — a bare 'G' still means
-// "last card" (see main.go's navG/navLast), but a digit sequence typed
-// first (accumulated in model.pendingCount, see navDigitMsg) redirects
-// it to goToLine instead.
-//
-// This is the "coarse" version: it opens the card containing that line,
-// not the exact line within it, since widget.TextAreaOptions has no way
-// to set an initial cursor position — see
-// upstream-specs/tui-cursor-offset-and-numeric-gutter.md, filed against
-// tui to close that gap.
+// Go to a line number (M11/M12): vim's "{count}G" — a bare 'G' still
+// means "last card" (see main.go's navG/navLast), but a digit sequence
+// typed first (accumulated in model.pendingCount, see navDigitMsg)
+// redirects it to goToLine instead, which both opens the card containing
+// that line and (M12, once tui v0.2.0's TextAreaOptions.InitialCursor
+// existed — see upstream-specs/tui-cursor-offset-and-numeric-gutter.md)
+// places the cursor at the exact line within it.
 package main
 
-import "github.com/sandgorgon/9ed/deck"
+import (
+	"bytes"
+	"unicode/utf8"
+
+	"github.com/sandgorgon/9ed/deck"
+)
 
 // navDigitMsg is produced by listEvent on a digit rune in Nav mode; its
 // value is the digit itself.
 type navDigitMsg rune
 
 // goToLine moves the cursor to (and opens Edit mode on) the card
-// containing line n (1-based), a no-op on an empty deck.
+// containing line n (1-based), a no-op on an empty deck. Also records
+// where within that card's body the line starts (model.gotoLineCursor/
+// gotoLineCard), which editView consults to seed the TextArea's initial
+// cursor position on its next mount — see main.go's editView and the
+// plan's design notes on why two fields, and why every other edit-mode-
+// entry path has to clear them.
 func (m *model) goToLine(n int) {
 	if len(m.cards) == 0 {
 		return
 	}
-	m.cursor = cardContaining(m.cards, lineOffset(m.src, n))
+	offset := lineOffset(m.src, n)
+	idx := cardContaining(m.cards, offset)
+	m.cursor = idx
 	m.editing = true
+
+	// cardBody(idx) may be an edited override, not the original src
+	// slice offset was computed against — clamping keeps the slice (and
+	// therefore the rune count) valid regardless; if the card has
+	// unsaved edits this session, the landing spot is best-effort, not
+	// exact, an accepted narrow edge case.
+	body := m.cardBody(idx)
+	rel := min(max(offset-m.cards[idx].Span[0], 0), len(body))
+	runeOffset := utf8.RuneCountInString(body[:rel])
+	m.gotoLineCursor = &runeOffset
+	m.gotoLineCard = idx
 }
 
 // lineOffset returns line n's (1-based) starting byte offset in src,
@@ -55,4 +75,11 @@ func cardContaining(cards []deck.Card, offset int) int {
 		}
 	}
 	return len(cards) - 1
+}
+
+// cardFirstLine returns the file-absolute (1-based) line number of the
+// byte at cardStart — used to seed editView's Gutter so line numbers are
+// file-absolute, not restarting at 1 per card.
+func cardFirstLine(src []byte, cardStart int) int {
+	return 1 + bytes.Count(src[:cardStart], []byte("\n"))
 }

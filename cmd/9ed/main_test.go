@@ -146,6 +146,28 @@ func TestPageUpDown(t *testing.T) {
 	})
 }
 
+// TestCardFirstLine covers the line-number math editView's Gutter closure
+// relies on to show file-absolute line numbers — tested directly rather
+// than needing to render through tui to verify.
+func TestCardFirstLine(t *testing.T) {
+	src := []byte("aaa\nbbb\nccc\nddd\n")
+	tests := []struct {
+		cardStart int
+		want      int
+	}{
+		{0, 1},  // first card starts on line 1
+		{4, 2},  // "bbb..." starts on line 2
+		{8, 3},  // "ccc..." starts on line 3
+		{12, 4}, // "ddd..." starts on line 4
+		{16, 5}, // right at EOF — one line past the last real content
+	}
+	for _, tt := range tests {
+		if got := cardFirstLine(src, tt.cardStart); got != tt.want {
+			t.Errorf("cardFirstLine(src, %d) = %d, want %d", tt.cardStart, got, tt.want)
+		}
+	}
+}
+
 func TestListEventNavKeys(t *testing.T) {
 	tests := []struct {
 		ev   input.KeyEvent

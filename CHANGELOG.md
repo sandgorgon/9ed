@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- `cmd/9ed`: precise go-to-line and line numbers (M12), the two items
+  left blocked on `tui` after M11. `{count}G` now places the cursor
+  exactly on that line (not just at the top of its card) via `tui`
+  v0.2.0's new `TextAreaOptions.InitialCursor` — `goToLine` (`goto.go`)
+  computes the target as a *rune* offset within the card's own body
+  (`InitialCursor` is rune-based; `Span` is byte-based), correctly
+  handling multi-byte runes ahead of the target line via
+  `utf8.RuneCountInString` rather than reusing the raw byte offset.
+  Edit mode also always shows line numbers now, via `TextAreaOptions`'
+  new `Gutter` — file-absolute (matching what `go build`/`grep -n`/a
+  stack trace reports), computed once per render from the card's own
+  starting line (`cardFirstLine`), not restarting at 1 per card.
+  The one real design wrinkle: `InitialCursor` only takes effect at a
+  fresh `TextArea` mount, and `model.cursor` alone can't distinguish "I
+  just arrived here via go-to-line" from "I'm re-opening this same card
+  normally" — so `model.gotoLineCursor`/`gotoLineCard` are cleared by
+  every *other* edit-mode-entry/transition path (`enterEditMsg`,
+  `insertMsg`, `jumpCard`, Esc), the same discipline
+  `pendingG`/`pendingCount` already established. Verified live in tmux:
+  `5G` lands the cursor exactly on line 5 (confirmed by typing a marker
+  character and watching where it landed), the gutter shows correct
+  file-absolute numbers, and both staleness paths (a plain `Enter`
+  re-opening the same card, and `Ctrl+Up`/`Ctrl+Down` away and back)
+  correctly fall back to the default cursor position instead of
+  reapplying the earlier line target.
 - Dependencies: `tui` v0.1.13 → v0.2.0, `9p` v0.7.1, `9sh` v0.2.1 — all
   three resolve issues filed against them this session, all purely
   additive/fix-only:

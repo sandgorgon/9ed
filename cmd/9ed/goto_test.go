@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sandgorgon/tui/input"
@@ -70,11 +71,78 @@ func TestGoToLine(t *testing.T) {
 		}
 	})
 
+	t.Run("records the rune offset within the card's own body", func(t *testing.T) {
+		// cards[1] spans bytes [4,8): "bbb\n" — line 2 starts right at
+		// its own first byte, so the rune offset within that card's
+		// body should be 0.
+		m := &model{src: src, cards: cards, view: &bufferView{}}
+		m.goToLine(2)
+		if m.gotoLineCursor == nil || *m.gotoLineCursor != 0 || m.gotoLineCard != 1 {
+			got := "nil"
+			if m.gotoLineCursor != nil {
+				got = fmt.Sprint(*m.gotoLineCursor)
+			}
+			t.Errorf("gotoLineCursor=%v gotoLineCard=%d, want 0 and 1", got, m.gotoLineCard)
+		}
+	})
+
+	t.Run("counts runes, not bytes, ahead of a multi-byte-rune line", func(t *testing.T) {
+		// "日本語\n" is 3 runes + '\n' = 4 runes but 10 bytes — the whole
+		// point of using utf8.RuneCountInString rather than the raw byte
+		// offset, which InitialCursor (rune-based) would misinterpret.
+		multiByteSrc := []byte("日本語\nsecond\n")
+		oneCard := []deck.Card{{Span: [2]int{0, len(multiByteSrc)}}}
+		m := &model{src: multiByteSrc, cards: oneCard, view: &bufferView{}}
+		m.goToLine(2)
+		if m.gotoLineCursor == nil || *m.gotoLineCursor != 4 {
+			got := "nil"
+			if m.gotoLineCursor != nil {
+				got = fmt.Sprint(*m.gotoLineCursor)
+			}
+			t.Errorf("gotoLineCursor = %v, want 4 (rune count of \"日本語\\n\"), not the 10-byte offset", got)
+		}
+	})
+
 	t.Run("no-op on an empty deck", func(t *testing.T) {
 		m := &model{src: src, cards: nil, view: &bufferView{}}
 		m.goToLine(2)
 		if m.editing {
 			t.Error("expected editing to stay false on an empty deck")
+		}
+	})
+}
+
+// TestGotoLineCursorDoesNotLeak covers the staleness bug the plan calls
+// out: gotoLineCursor must not survive into a later, unrelated
+// edit-mode-entry on the same card.
+func TestGotoLineCursorDoesNotLeak(t *testing.T) {
+	src := []byte("aaa\nbbb\nccc\n")
+	cards := []deck.Card{
+		{Span: [2]int{0, 4}},
+		{Span: [2]int{4, 8}},
+		{Span: [2]int{8, 12}},
+	}
+
+	t.Run("Esc then a plain Enter on the same card doesn't reapply the old target", func(t *testing.T) {
+		m := &model{src: src, cards: cards, view: &bufferView{}}
+		m.goToLine(2) // lands on cards[1], sets gotoLineCursor
+		mm, _ := m.Update(input.KeyEvent{Key: input.KeyEsc})
+		m = mm.(*model)
+		m.cursor = 1 // re-select the same card in Nav mode
+		mm, _ = m.Update(enterEditMsg{})
+		m = mm.(*model)
+		if m.gotoLineCursor != nil {
+			t.Errorf("gotoLineCursor = %v, want nil after a plain Enter", *m.gotoLineCursor)
+		}
+	})
+
+	t.Run("jumpCard away and back clears it too", func(t *testing.T) {
+		m := &model{src: src, cards: cards, view: &bufferView{}}
+		m.goToLine(2)  // cards[1]
+		m.jumpCard(1)  // -> cards[2]
+		m.jumpCard(-1) // back to cards[1]
+		if m.gotoLineCursor != nil {
+			t.Errorf("gotoLineCursor = %v, want nil after jumping away and back", *m.gotoLineCursor)
 		}
 	})
 }

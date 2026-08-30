@@ -79,6 +79,7 @@ func (m *model) abandonEmptyInsert() {
 // before the removed index, so the normal -1 from that same unchanged
 // cursor still lands correctly on what was originally at idx-1.
 func (m *model) jumpCard(delta int) {
+	m.gotoLineCursor = nil
 	abandoning := m.isEmptyInsert(m.cursor)
 	if abandoning {
 		m.abandonEmptyInsert()

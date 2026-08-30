@@ -10,14 +10,14 @@ Built entirely on stdlib plus four sibling Plan-9-flavored Go modules —
 [`9vcs`](https://github.com/sandgorgon/9vcs),
 [`9auth`](https://github.com/sandgorgon/9auth) — no other dependencies.
 
-Status: M0–M11 implemented — deck segmentation for all six target languages
+Status: M0–M12 implemented — deck segmentation for all six target languages
 (Markdown, Go, Bash, C/C++, Haskell, `kyu`, plus a plain-text fallback for
 anything else), Nav/Edit mode shell with `o`/`O` card insertion,
 `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump navigation, a Nav-mode typeahead
-filter, go-to-line (coarse), atomic save, and a 9P server surface for a
-running buffer with a writable `/cards/<n>/body`. `9auth` integration and
-line numbers/precise go-to-line (blocked on a `tui` change) are still
-open; see [`upstream-specs/`](upstream-specs/) for gaps this project has
+filter, precise go-to-line, line numbers, atomic save, and a 9P server
+surface for a running buffer with a writable `/cards/<n>/body`. `9auth`
+integration is the only item still open; see
+[`upstream-specs/`](upstream-specs/) for gaps this project has
 already filed against its own dependencies.
 
 ```
