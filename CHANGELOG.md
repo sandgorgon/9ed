@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `cmd/9ed`: Nav-mode `o`/`O` (M9) — insert a new, empty card and drop
+  straight into Edit mode on it, vim-style: `o` after the cursor, `O`
+  before it. Fixes the previous only way to add a card (type it into the
+  tail of a neighbor's body and let the next Save's resegmentation split
+  it back out) being invisible in Nav mode until Save — the new card is a
+  real row, and a real `/cards/<n>/...` over 9P, from the first keystroke.
+  A card is a view computed by a `Segmenter`, never stored, so a
+  synthetic zero-width card (`Span [pos,pos)`, `Kind "new"`) slots into
+  `model.cards` with no changes to `reassemble`, `cardBody`, or `fs9p.go`
+  — an untouched one reassembles to nothing and simply isn't there after
+  the next resegmentation. The one real cost was `edited map[int]string`
+  being keyed by raw index: `insertCard`/`removeCard` (new
+  `cmd/9ed/insert.go`) shift every key at or above the insertion point.
+  Backing out with Esc before typing anything removes the phantom card
+  immediately rather than leaving a blank row until the next Save (a UX
+  nicety — Save's resegmentation would drop it either way). Verified live
+  in tmux: `o`/`O` placement relative to the cursor, a typed function
+  correctly resegmenting into its own card on Save, and an abandoned
+  empty insert vanishing cleanly on Esc.
 - Investigated `9auth` integration (the last item on the open-work list)
   and concluded it isn't actionable yet, rather than forcing it in: `9auth`
   provides TLS fingerprint-based peer trust for a *network*-exposed

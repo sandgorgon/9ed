@@ -59,3 +59,26 @@ func TestReassembleInsertsMissingNewline(t *testing.T) {
 		t.Fatalf("re-segmenting reassemble()'s output lost the \"var B\" card entirely: %+v", newCards)
 	}
 }
+
+// TestReassembleInsertedCard is the concrete scenario insertCard (M9)
+// exists for: a new function typed into a card inserted between two
+// existing ones reassembles correctly and re-segments into three real
+// decls, the new one landing in between, not swallowed by either
+// neighbor.
+func TestReassembleInsertedCard(t *testing.T) {
+	src := []byte("package foo\n\nfunc A() {}\n\nfunc B() {}\n")
+	cards := deck.GoSegmenter{}.Segment(src) // [0]=preamble, [1]=A, [2]=B
+	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil)
+
+	m.insertCard(2, cards[1].Span[1]) // between A and B, matching insertBelow on A
+	m.setEdited(2, "func New() {}\n")
+
+	got := m.reassemble()
+	newCards := deck.GoSegmenter{}.Segment(got)
+	if len(newCards) != 4 {
+		t.Fatalf("re-segmented into %d cards, want 4 (preamble, A, New, B): %+v", len(newCards), newCards)
+	}
+	if !strings.Contains(newCards[1].Title, "func A") || !strings.Contains(newCards[2].Title, "func New") || !strings.Contains(newCards[3].Title, "func B") {
+		t.Fatalf("cards out of order or wrong: %+v", newCards)
+	}
+}

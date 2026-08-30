@@ -227,6 +227,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.setEdited(m.cursor, v.value)
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 
+	case insertMsg:
+		idx, pos := 0, 0
+		if len(m.cards) > 0 {
+			idx, pos = m.cursor+1, m.cards[m.cursor].Span[1]
+			if v == insertAbove {
+				idx, pos = m.cursor, m.cards[m.cursor].Span[0]
+			}
+		}
+		m.insertCard(idx, pos)
+		m.cursor = idx
+		m.editing = true
+		m.view.publish(m.path, m.src, m.cards, m.edited)
+
 	case p9WriteMsg:
 		if v.cardIdx < 0 || v.cardIdx >= len(m.cards) {
 			v.result <- fmt.Errorf("no such card %d", v.cardIdx)
@@ -269,6 +282,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// HandleInput), so 9ed's own mode transition needs Esc to
 			// reach here untouched.
 			if v.Key == input.KeyEsc && v.Mod == 0 {
+				// Backing out of a still-empty inserted card (see
+				// insertMsg) removes it rather than leaving a blank
+				// "new" row until the next Save — a UX nicety, not a
+				// correctness requirement: Save's resegmentation would
+				// drop it either way, since an untouched zero-width
+				// span reassembles to nothing.
+				if m.cards[m.cursor].Kind == newCardKind && m.cardBody(m.cursor) == "" {
+					m.removeCard(m.cursor)
+					if m.cursor >= len(m.cards) {
+						m.cursor = max(len(m.cards)-1, 0)
+					}
+					m.view.publish(m.path, m.src, m.cards, m.edited)
+				}
 				m.editing = false
 			}
 			return m, nil // never fall through to the 'q' check below:
@@ -299,7 +325,7 @@ func (m *model) navView() tui.Node {
 	}
 
 	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: style.DefaultDark()}, listEvent)
-	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k or ↑/↓: move   enter: edit   ^s: save   q: quit",
+	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k or ↑/↓: move   enter: edit   o/O: insert   ^s: save   q: quit",
 		m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 
 	return tui.Box(layout.Vertical,
@@ -349,6 +375,10 @@ func listEvent(e input.Event) tui.Msg {
 		return navDown
 	case ke.Key == input.KeyEnter:
 		return enterEditMsg{}
+	case ke.Rune == 'o':
+		return insertBelow
+	case ke.Rune == 'O':
+		return insertAbove
 	}
 	return nil
 }
