@@ -45,13 +45,14 @@ func run() int {
 		return 1
 	}
 
-	m := newModel(path, src, seg, seg.Segment(src))
+	writes := make(chan p9WriteMsg)
+	m := newModel(path, src, seg, seg.Segment(src), writes)
 	m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	// The 9P surface is best-effort, not required to edit: a runtime
 	// dir we can't create/listen on (e.g. an unwritable $XDG_RUNTIME_DIR)
 	// degrades to "no scripting API this session," not a refusal to edit.
-	if stop, err := serveBuffer(m.view, path); err != nil {
+	if stop, err := serveBuffer(m.view, path, writes); err != nil {
 		fmt.Fprintln(os.Stderr, "9ed: warning: 9p server disabled:", err)
 	} else {
 		defer stop()
@@ -112,10 +113,16 @@ type model struct {
 	// after Update handles anything that changes one of those fields.
 	// cursor/editing/saveErr are pure UI state, not published.
 	view *bufferView
+
+	// writes is the receive side of a cardBodyFile's Close-time commit
+	// (see fs9p.go's p9WriteMsg) — Init's waitForP9Write Cmd is the
+	// only reader, on tui's single event-loop goroutine, same as every
+	// other model mutation.
+	writes chan p9WriteMsg
 }
 
-func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card) *model {
-	return &model{path: path, src: src, seg: seg, cards: cards, view: &bufferView{}}
+func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg) *model {
+	return &model{path: path, src: src, seg: seg, cards: cards, view: &bufferView{}, writes: writes}
 }
 
 // cardBody returns card i's current text: the edited version if one
@@ -164,7 +171,23 @@ func (m *model) statusLine(rest string) string {
 	return rest
 }
 
-func (m *model) Init() tui.Cmd { return nil }
+func (m *model) Init() tui.Cmd { return waitForP9Write(m.writes) }
+
+// waitForP9Write is the long-running "listen for an external write"
+// Cmd tui's docs/GUIDE.md calls for: it blocks on its own goroutine
+// (never Update's) until a cardBodyFile.Close sends a request, returns
+// it as the Msg Update's p9WriteMsg case applies, and — since Update
+// reschedules it — is always listening again by the time the next
+// write can arrive.
+func waitForP9Write(writes <-chan p9WriteMsg) tui.Cmd {
+	return func() tui.Msg {
+		req, ok := <-writes
+		if !ok {
+			return nil
+		}
+		return req
+	}
+}
 
 // navMsg/enterEditMsg are produced by the list's onEvent (see
 // listEvent); editChangedMsg is produced by the textarea's OnChange
@@ -203,6 +226,16 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
 		m.view.publish(m.path, m.src, m.cards, m.edited)
+
+	case p9WriteMsg:
+		if v.cardIdx < 0 || v.cardIdx >= len(m.cards) {
+			v.result <- fmt.Errorf("no such card %d", v.cardIdx)
+			return m, waitForP9Write(m.writes)
+		}
+		m.setEdited(v.cardIdx, string(v.content))
+		m.view.publish(m.path, m.src, m.cards, m.edited)
+		v.result <- nil
+		return m, waitForP9Write(m.writes)
 
 	case saveDoneMsg:
 		if v.err != nil {

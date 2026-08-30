@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"path/filepath"
@@ -18,15 +19,16 @@ import (
 // over the actual 9P wire protocol (marshal/unmarshal, walk, open,
 // read), not just calling bufferFS's methods directly in-process,
 // since a real 9P client (kyu, or a future unix-socket-aware 9pc —
-// see sandgorgon/9p#3) is what will actually talk to this.
-func startTestServer(t *testing.T, view *bufferView) *client.Client {
+// see sandgorgon/9p#3) is what will actually talk to this. writes may
+// be nil for a test that only exercises reads.
+func startTestServer(t *testing.T, view *bufferView, writes chan<- p9WriteMsg) *client.Client {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "test.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &server.Server{FS: &bufferFS{view: view}}
+	srv := &server.Server{FS: &bufferFS{view: view, writes: writes}}
 	go srv.Serve(l)
 	t.Cleanup(func() { l.Close() })
 
@@ -39,6 +41,27 @@ func startTestServer(t *testing.T, view *bufferView) *client.Client {
 		t.Fatal(err)
 	}
 	return c
+}
+
+// runP9WriteConsumer drives writes the same way main.go's Update
+// (p9WriteMsg case) does — apply the edit to edited, republish, ack —
+// without needing a full tui.App/model event loop in the test. Runs
+// until the test ends (t.Cleanup stops it by closing writes).
+func runP9WriteConsumer(t *testing.T, view *bufferView, src []byte, cards []deck.Card, writes chan p9WriteMsg) {
+	t.Helper()
+	edited := make(map[int]string)
+	go func() {
+		for req := range writes {
+			if req.cardIdx < 0 || req.cardIdx >= len(cards) {
+				req.result <- fmt.Errorf("no such card %d", req.cardIdx)
+				continue
+			}
+			edited[req.cardIdx] = string(req.content)
+			view.publish(view.snapshot().path, src, cards, edited)
+			req.result <- nil
+		}
+	}()
+	t.Cleanup(func() { close(writes) })
 }
 
 func readFile(t *testing.T, c *client.Client, path string) string {
@@ -61,7 +84,7 @@ func TestFS9P(t *testing.T) {
 	view := &bufferView{}
 	view.publish("f.go", src, cards, nil)
 
-	c := startTestServer(t, view)
+	c := startTestServer(t, view, nil)
 
 	if got := readFile(t, c, "/cards/1/title"); got != "func F() {}" {
 		t.Errorf("/cards/1/title = %q, want %q", got, "func F() {}")
@@ -90,7 +113,42 @@ func TestFS9P(t *testing.T) {
 		t.Error("expected an error opening a nonexistent card, got nil")
 	}
 	if _, err := c.Open("/cards/1/body", p9.OWRITE); err == nil {
-		t.Error("expected an error opening a card body for write (M5 is read-only), got nil")
+		t.Error("expected an error opening a card body for write with no write consumer wired up (writes: nil), got nil")
+	}
+}
+
+// TestFS9PWrite exercises M8's write path end-to-end over the real 9P
+// wire protocol: open /cards/<n>/body for write, write new content,
+// close (which blocks on the commit — see cardBodyFile.Close), and
+// confirm the edit is visible both over 9P and in the edited map a
+// real Update would have produced.
+func TestFS9PWrite(t *testing.T) {
+	src := []byte("package foo\n\nfunc F() {}\n")
+	cards := deck.GoSegmenter{}.Segment(src) // [0]=preamble, [1]=func "func F() {}"
+	view := &bufferView{}
+	view.publish("f.go", src, cards, nil)
+
+	writes := make(chan p9WriteMsg)
+	runP9WriteConsumer(t, view, src, cards, writes)
+	c := startTestServer(t, view, writes)
+
+	f, err := c.Open("/cards/1/body", p9.OWRITE)
+	if err != nil {
+		t.Fatalf("open for write: %v", err)
+	}
+	newBody := "func F() { /* edited over 9P */ }\n"
+	if _, err := f.Write([]byte(newBody)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close (commit): %v", err)
+	}
+
+	if got := readFile(t, c, "/cards/1/body"); got != newBody {
+		t.Errorf("/cards/1/body after write = %q, want %q", got, newBody)
+	}
+	if got := readFile(t, c, "/tag"); got != "f.go 2-cards unsaved\n" {
+		t.Errorf("/tag after write = %q, want a dirty marker", got)
 	}
 }
 

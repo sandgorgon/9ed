@@ -1,9 +1,9 @@
 // This file implements 9ed's 9P-as-editor-API surface: a running
-// buffer, served read-only (for now — M5) as:
+// buffer, served as:
 //
 //	/tag                status line: path, card count, dirty state
 //	/cards/<n>/title
-//	/cards/<n>/body
+//	/cards/<n>/body     writable as of M8 — see cardBodyFile
 //	/cards/<n>/lang     the card's Kind (e.g. "func", "heading") — the
 //	                    per-card structural role, not the file's
 //	                    language (which is constant across every card
@@ -33,6 +33,28 @@ import (
 // bufferFS is one running buffer exposed over 9P.
 type bufferFS struct {
 	view *bufferView
+
+	// writes carries a cardBodyFile's Close-time commit into the tui
+	// event loop (see p9WriteMsg's doc comment) — nil for a bufferFS
+	// that only ever needs to serve reads (tests that don't exercise
+	// the write path), in which case /cards/<n>/body's Open(OWRITE)
+	// itself reports the error rather than leaving Close to fail on a
+	// nil channel send.
+	writes chan<- p9WriteMsg
+}
+
+// p9WriteMsg is cardBodyFile's Close-time "commit this card's new
+// body" request: sent to bufferFS.writes and, on the other end, both
+// the tui.Msg a listening Cmd turns it into for Update to apply (see
+// main.go's waitForP9Write/Update) and the channel element type — one
+// type serves both roles since tui.Msg is `any`. result is unbuffered
+// and always read by the same Cmd goroutine that just sent the
+// request, immediately after sending it, so an unbuffered chan error
+// never risks blocking Update.
+type p9WriteMsg struct {
+	cardIdx int
+	content []byte
+	result  chan<- error
 }
 
 func (fs *bufferFS) Attach(ctx context.Context, uname, aname string) (server.File, error) {
@@ -100,7 +122,7 @@ func (d *dirFile) Walk(ctx context.Context, name string) (server.File, error) {
 		case "title":
 			return &objFile{name: "title", content: d.cardField(cardTitle)}, nil
 		case "body":
-			return &objFile{name: "body", content: d.cardField(cardBody)}, nil
+			return &cardBodyFile{fs: d.fs, cardIdx: d.cardIdx, content: d.cardField(cardBody)}, nil
 		case "lang":
 			return &objFile{name: "lang", content: d.cardField(cardLang)}, nil
 		}
@@ -242,6 +264,107 @@ func (f *objFile) Remove(ctx context.Context) error {
 }
 
 func (f *objFile) Close() error { return nil }
+
+// cardBodyFile is /cards/<n>/body: readable exactly like objFile
+// (content snapshotted at Open(OREAD)), but Open(OWRITE)/Open(ORDWR)
+// also arms a write buffer that Close commits as the card's whole new
+// body. There's no partial-write story — opening for write always
+// starts from an empty buffer regardless of OTRUNC, so a client doing
+// the obvious `9pc put localfile /cards/N/body` (which opens OWRITE,
+// no OTRUNC, per 9p's own cmd/9pc) replaces the body outright, the
+// same "whole snapshot, not an incremental patch" model the read side
+// already uses.
+type cardBodyFile struct {
+	fs      *bufferFS
+	cardIdx int
+	content func() []byte // snapshot func for reads, same as objFile's
+
+	data      []byte // read snapshot, taken at Open(OREAD)/Open(ORDWR)
+	writeBuf  []byte // accumulated at Open(OWRITE)/Open(ORDWR), committed at Close
+	writeMode bool
+}
+
+func (f *cardBodyFile) Qid() p9.Qid {
+	return p9.Qid{Type: p9.QTFILE, Path: qidPath(fmt.Sprintf("file/body/%d", f.cardIdx))}
+}
+
+func (f *cardBodyFile) Stat(ctx context.Context) (p9.Stat, error) {
+	return p9.Stat{Qid: f.Qid(), Mode: 0o644, Length: uint64(len(f.content())), Name: "body"}, nil
+}
+
+func (f *cardBodyFile) WStat(ctx context.Context, st p9.Stat) error {
+	return fmt.Errorf("fs9p: body: WStat not supported")
+}
+
+func (f *cardBodyFile) Walk(ctx context.Context, name string) (server.File, error) {
+	return nil, fmt.Errorf("fs9p: body is not a directory")
+}
+
+func (f *cardBodyFile) Open(ctx context.Context, mode p9.Mode) error {
+	switch mode & 3 {
+	case p9.OREAD:
+		f.data = f.content()
+	case p9.OWRITE, p9.ORDWR:
+		if f.fs.writes == nil {
+			return fmt.Errorf("fs9p: body: write support unavailable")
+		}
+		if mode&3 == p9.ORDWR {
+			f.data = f.content()
+		}
+		f.writeMode = true
+		f.writeBuf = nil
+	default:
+		return fmt.Errorf("fs9p: body: unsupported open mode %v", mode)
+	}
+	return nil
+}
+
+func (f *cardBodyFile) Create(ctx context.Context, name string, perm p9.Mode, mode p9.Mode) (server.File, error) {
+	return nil, fmt.Errorf("fs9p: body is not a directory")
+}
+
+func (f *cardBodyFile) Read(ctx context.Context, offset int64, p []byte) (int, error) {
+	if offset >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	return copy(p, f.data[offset:]), nil
+}
+
+// Write grows writeBuf to cover [offset, offset+len(p)) — the standard
+// WriteAt-style semantics a real file gives a client that writes
+// sequentially from 0, which is what both io.Copy (cmd/9pc's put) and
+// a client writing the whole new body in one Twrite already do.
+func (f *cardBodyFile) Write(ctx context.Context, offset int64, p []byte) (int, error) {
+	if !f.writeMode {
+		return 0, fmt.Errorf("fs9p: body: not open for writing")
+	}
+	end := offset + int64(len(p))
+	if end > int64(len(f.writeBuf)) {
+		grown := make([]byte, end)
+		copy(grown, f.writeBuf)
+		f.writeBuf = grown
+	}
+	copy(f.writeBuf[offset:end], p)
+	return len(p), nil
+}
+
+func (f *cardBodyFile) Remove(ctx context.Context) error {
+	return fmt.Errorf("fs9p: body: remove not supported")
+}
+
+// Close commits an armed write buffer as the card's new body, blocking
+// until the tui event loop has actually applied it (see p9WriteMsg) —
+// so a script's `9pc put ...; echo done` only prints done once the
+// edit is really visible, not just handed off. A plain read-only
+// Close (the common case) is a no-op, matching objFile.
+func (f *cardBodyFile) Close() error {
+	if !f.writeMode {
+		return nil
+	}
+	result := make(chan error)
+	f.fs.writes <- p9WriteMsg{cardIdx: f.cardIdx, content: f.writeBuf, result: result}
+	return <-result
+}
 
 func qidPath(key string) uint64 {
 	sum := sha256.Sum256([]byte(key))

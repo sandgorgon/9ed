@@ -34,7 +34,7 @@ func runtimeDir() string {
 // enumerate without dialing every socket. Returns a cleanup func that
 // removes both and stops the server; the caller is responsible for
 // calling it before exit.
-func serveBuffer(view *bufferView, path string) (stop func(), err error) {
+func serveBuffer(view *bufferView, path string, writes chan<- p9WriteMsg) (stop func(), err error) {
 	dir := runtimeDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("runtime dir: %w", err)
@@ -59,7 +59,7 @@ func serveBuffer(view *bufferView, path string) (stop func(), err error) {
 		return nil, fmt.Errorf("write discovery file: %w", err)
 	}
 
-	srv := &server.Server{FS: &bufferFS{view: view}}
+	srv := &server.Server{FS: &bufferFS{view: view, writes: writes}}
 	go srv.Serve(l) // its error, once stop() closes l, is expected (net.ErrClosed) and has nowhere useful to go
 
 	return func() {

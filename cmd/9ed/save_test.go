@@ -9,7 +9,7 @@ import (
 
 func TestReassembleRoundTrip(t *testing.T) {
 	src := []byte("package foo\n\nvar A = 1\n\nvar B = 2\n")
-	m := newModel("f.go", src, deck.GoSegmenter{}, deck.GoSegmenter{}.Segment(src))
+	m := newModel("f.go", src, deck.GoSegmenter{}, deck.GoSegmenter{}.Segment(src), nil)
 
 	if got := string(m.reassemble()); got != string(src) {
 		t.Fatalf("unedited reassemble = %q, want %q", got, src)
@@ -25,7 +25,7 @@ func TestReassembleRoundTrip(t *testing.T) {
 func TestReassembleInsertsMissingNewline(t *testing.T) {
 	src := []byte("package foo\n\nvar A = 1\n\nvar B = 2\n")
 	cards := deck.GoSegmenter{}.Segment(src)
-	m := newModel("f.go", src, deck.GoSegmenter{}, cards)
+	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil)
 
 	// Find the "var A" card and edit it to drop its trailing newline —
 	// exactly what typing into TextArea without pressing Enter produces.

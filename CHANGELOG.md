@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- `cmd/9ed`: write-side 9P surface (M8) — `/cards/<n>/body` is now
+  writable (`title`/`lang`/`tag` stay read-only, matching what the
+  existing TextArea-based edit flow already lets a user change). Opening
+  for write always starts from an empty buffer regardless of `OTRUNC`
+  (there's no partial-write story, same "whole snapshot" model the read
+  side already uses), so the plain `client.Open(path, p9.OWRITE)` +
+  `Write` + `Close` idiom — what a real `9pc` doing
+  `9pc put local /cards/N/body` would produce, once
+  upstream-specs/9p-9pc-put-overwrite-existing-file.md is fixed —
+  replaces a card's body outright. A write only actually lands once
+  `Close` returns: it blocks on a round trip through the tui event loop
+  (`p9WriteMsg`/`waitForP9Write`, the same long-running-Cmd-listening-on-
+  a-channel pattern `tui`'s docs/GUIDE.md calls for), which is the only
+  goroutine allowed to touch `model` — applies the exact same
+  `setEdited`/`view.publish` path an interactive TextArea edit already
+  goes through, so Nav mode's `*` marker and a later Save behave
+  identically whether the edit came from a keystroke or a script.
+  Verified against a real running 9ed instance over its actual Unix
+  socket (`client.Open`/`Write`/`Close`, not just `go test`): the edit
+  appears live in a tmux-driven Nav-mode view, and Ctrl+S persists it to
+  disk correctly. `9pc put` itself can't exercise this yet — see
+  upstream-specs/9p-9pc-put-overwrite-existing-file.md, a gap filed
+  against `9p` after `9pc put` failed on an existing file while the
+  underlying `Open(OWRITE)` it should fall back to worked fine directly.
 - `deck` package: `BashSegmenter`, `CSegmenter`, `HaskellSegmenter`, and
   `KyuSegmenter` (M7) — deck segmentation now covers all six languages the
   README commits to. Bash/C-C++/Haskell are "good enough" structural
