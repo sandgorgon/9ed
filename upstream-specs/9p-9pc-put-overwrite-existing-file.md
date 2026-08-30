@@ -1,5 +1,8 @@
 # 9p: 9pc put can't write to a file that already exists
 
+**Status:** Resolved in `9p` v0.7.1 — `put` now tries `Open` first,
+exactly as proposed below.
+
 **Issue:** https://github.com/sandgorgon/9p/issues/6
 
 **Repo:** github.com/sandgorgon/9p

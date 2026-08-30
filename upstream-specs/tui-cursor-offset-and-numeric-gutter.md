@@ -1,5 +1,10 @@
 # tui: TextArea needs an initial-cursor-offset option, and the gutter proposal needs a multi-character variant
 
+**Status:** Resolved in `tui` v0.2.0 — `TextAreaOptions.InitialCursor
+*int` and a multi-character `Gutter func(lineIdx int) (string,
+cell.Style)`, exactly as proposed below. Not yet adopted in 9ed itself
+(precise go-to-line, show line numbers) — that's separate follow-up work.
+
 **Issue:** https://github.com/sandgorgon/tui/issues/11
 
 **Repo:** github.com/sandgorgon/tui

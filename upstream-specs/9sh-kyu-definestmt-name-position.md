@@ -1,5 +1,9 @@
 # 9sh: ast.DefineStmt has no position for its own leading identifier
 
+**Status:** Resolved in `9sh` v0.2.1 — `DefineStmt` gained `NameTok`,
+exactly as proposed below; `deck/kyu.go`'s backward-scan workaround has
+been removed.
+
 **Issue:** https://github.com/sandgorgon/9sh/issues/1
 
 **Repo:** github.com/sandgorgon/9sh

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Dependencies: `tui` v0.1.13 → v0.2.0, `9p` v0.7.1, `9sh` v0.2.1 — all
+  three resolve issues filed against them this session, all purely
+  additive/fix-only:
+  - `tui` v0.2.0 adds `TextAreaOptions.InitialCursor *int` and a
+    multi-character `Gutter func(lineIdx int) (string, cell.Style)`,
+    exactly as proposed in
+    `upstream-specs/tui-cursor-offset-and-numeric-gutter.md`
+    (github.com/sandgorgon/tui#11) — unblocks precise go-to-line and
+    showing line numbers, still not implemented in 9ed yet.
+  - `9p` v0.7.1 fixes `cmd/9pc put` to `Open` an existing file before
+    falling back to Walk+`Create` (github.com/sandgorgon/9p#6) — no
+    9ed-side change needed, this only affects the `9pc` CLI.
+  - `9sh` v0.2.1 adds `ast.DefineStmt.NameTok` (github.com/sandgorgon/9sh#1)
+    — `deck/kyu.go`'s `kyuDefineStart` backward-text-scan workaround is
+    gone; `KyuSegmenter` now reads the identifier's real position
+    directly, the same as every other statement kind already did.
 - `cmd/9ed`: Nav-mode typeahead filter and go-to-line (M11). `/` starts a
   filter — every card whose title doesn't case-insensitively contain the
   typed query drops out of the list live, `Up`/`Down` move within the

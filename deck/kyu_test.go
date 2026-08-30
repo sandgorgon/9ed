@@ -48,7 +48,7 @@ func TestKyuSegmenter(t *testing.T) {
 			},
 		},
 		{
-			name: "extra whitespace before := still recovers the identifier's start",
+			name: "extra whitespace before := doesn't affect the identifier's start",
 			src:  "x   :=   5\n",
 			want: []Card{{Kind: "define", Title: "x   :=   5"}},
 		},

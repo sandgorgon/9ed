@@ -22,12 +22,10 @@ import (
 // handful of parser.go's postfix/infix constructors (BinaryExpr, PipeExpr,
 // FieldAccess, Call, ErrCheck, Background) stamp Tok with the *operator*
 // token instead, so kyuExprTok recurses to the true leftmost operand
-// rather than trusting Tok directly. ast.DefineStmt.Tok is a step further:
-// it's the ':=' token, and — unlike AssignStmt, whose Target expr carries
-// its own position — DefineStmt has nowhere to recover the leading
-// identifier's position from at all; kyuDefineStart reconstructs it by
-// scanning src backward for the identifier text. See
-// upstream-specs/9sh-kyu-definestmt-name-position.md.
+// rather than trusting Tok directly. ast.DefineStmt uses NameTok (9sh
+// v0.2.1+) rather than its own Tok (the ':=' token) for the same reason —
+// see upstream-specs/9sh-kyu-definestmt-name-position.md, the gap this
+// was filed against and resolved.
 type KyuSegmenter struct{}
 
 func (KyuSegmenter) Segment(src []byte) []Card {
@@ -51,9 +49,6 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 	for _, s := range prog.Stmts {
 		tok, kind := kyuStmtTok(s)
 		start := kyuOffset(src, lineStarts, tok.Line, tok.Col)
-		if def, ok := s.(*kast.DefineStmt); ok {
-			start = kyuDefineStart(src, start, def.Name)
-		}
 		stmts = append(stmts, stmt{spanStart: start, title: firstLine(src[start:]), kind: kind})
 	}
 
@@ -77,13 +72,11 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 
 // kyuStmtTok returns s's own boundary token (the token whose (line, col)
 // marks the statement's start, after resolving through kyuExprTok where s
-// wraps an Expr) and the Card.Kind it should produce. For *kast.DefineStmt
-// the returned token is ':=', not the statement's true start — the caller
-// corrects that via kyuDefineStart.
+// wraps an Expr) and the Card.Kind it should produce.
 func kyuStmtTok(s kast.Stmt) (ktoken.Token, string) {
 	switch n := s.(type) {
 	case *kast.DefineStmt:
-		return n.Tok, "define"
+		return n.NameTok, "define"
 	case *kast.AssignStmt:
 		return kyuExprTok(n.Target), "assign"
 	case *kast.BindStmt:
@@ -152,31 +145,6 @@ func kyuExprTok(e kast.Expr) ktoken.Token {
 	default:
 		return ktoken.Token{}
 	}
-}
-
-// kyuDefineStart recovers a `name := expr` statement's true start —
-// ast.DefineStmt has no field carrying it — by scanning src backward from
-// assignOffset (the ':=' token's own offset) over whitespace, then
-// checking that the len(name) bytes immediately before it spell name.
-// kyu's grammar only recognizes a DefineStmt when an IDENT is immediately
-// followed (lexically) by ':=', so that backward scan lands on exactly
-// the identifier in every source the parser actually accepted; a mismatch
-// (which real kyu source can't produce, but a defensive fallback still
-// covers) returns assignOffset itself rather than guessing further.
-func kyuDefineStart(src []byte, assignOffset int, name string) int {
-	i := assignOffset
-	for i > 0 && isKyuSpace(src[i-1]) {
-		i--
-	}
-	start := i - len(name)
-	if start >= 0 && string(src[start:i]) == name {
-		return start
-	}
-	return assignOffset
-}
-
-func isKyuSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
 // kyuLineStarts returns the byte offset of the start of each line in src;
