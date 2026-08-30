@@ -65,15 +65,21 @@ func run() int {
 	return 0
 }
 
-// segmenterFor picks a deck.Segmenter by file extension. Only Go and
-// Markdown exist as of M2/M3 — the rest (Bash, C/C++, Haskell, kyu)
-// land in M7.
+// segmenterFor picks a deck.Segmenter by file extension.
 func segmenterFor(path string) (deck.Segmenter, error) {
 	switch filepath.Ext(path) {
 	case ".go":
 		return deck.GoSegmenter{}, nil
 	case ".md", ".markdown":
 		return deck.MarkdownSegmenter{}, nil
+	case ".sh", ".bash":
+		return deck.BashSegmenter{}, nil
+	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
+		return deck.CSegmenter{}, nil
+	case ".hs":
+		return deck.HaskellSegmenter{}, nil
+	case ".kyu":
+		return deck.KyuSegmenter{}, nil
 	default:
 		return nil, fmt.Errorf("no segmenter for %q files yet", filepath.Ext(path))
 	}

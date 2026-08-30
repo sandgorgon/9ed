@@ -1,5 +1,8 @@
 # 9p: add a -net flag to 9pc for Unix domain socket dialing
 
+**Status:** Resolved in `9p` v0.6.0 — `cmd/9pc` gained a `-net` flag (default
+`tcp`, passing through to `client.Dial`), exactly as proposed below.
+
 **Repo:** github.com/sandgorgon/9p
 **Origin:** surfaced while designing 9ed (a segmented/card editor); 9ed's standalone
 (non-9sh) namespace design relies on scripting against a 9P server over a Unix domain

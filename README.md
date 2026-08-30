@@ -10,9 +10,12 @@ Built entirely on stdlib plus four sibling Plan-9-flavored Go modules —
 [`9vcs`](https://github.com/sandgorgon/9vcs),
 [`9auth`](https://github.com/sandgorgon/9auth) — no other dependencies.
 
-Status: pre-implementation. Design and the milestone plan are settled; see
-[`upstream-specs/`](upstream-specs/) for gaps this project has already filed
-against its own dependencies.
+Status: M0–M7 implemented — deck segmentation for all six target languages
+(Markdown, Go, Bash, C/C++, Haskell, `kyu`), Nav/Edit mode shell, atomic
+save, and a read-only 9P server surface for a running buffer. A write-side
+9P surface and `9auth` integration are still open; see
+[`upstream-specs/`](upstream-specs/) for gaps this project has already
+filed against its own dependencies.
 
 ```
 go get github.com/sandgorgon/9ed
@@ -37,11 +40,11 @@ go get github.com/sandgorgon/9ed
 
 | Module | Version |
 |---|---|
-| `github.com/sandgorgon/9p` | v0.5.0 |
+| `github.com/sandgorgon/9p` | v0.7.0 |
 | `github.com/sandgorgon/9vcs` | v0.1.3 |
 | `github.com/sandgorgon/9auth` | v0.1.0 |
-| `github.com/sandgorgon/tui` | v0.1.9 |
-| `github.com/sandgorgon/9sh` | pinned to a commit — no tagged release yet |
+| `github.com/sandgorgon/tui` | v0.1.13 |
+| `github.com/sandgorgon/9sh` | v0.2.0 |
 
 ## License
 

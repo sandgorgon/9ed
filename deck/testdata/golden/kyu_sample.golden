@@ -1,0 +1,6 @@
+preamble  [0,143) "# sample.kyu — fixture for KyuSegmenter's golden test: a define, a"
+define    [143,155) "count := 5"
+define    [155,177) "doubled := count * 2"
+assign    [177,195) "job.ctl = \"stop\""
+bind      [195,220) "bind /srv/logs, /n/logs"
+expr      [220,263) "jobs | where { |j| j.status == \"running\" }"

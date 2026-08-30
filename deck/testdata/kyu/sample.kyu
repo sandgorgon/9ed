@@ -1,0 +1,12 @@
+# sample.kyu — fixture for KyuSegmenter's golden test: a define, a
+# derived define, a field assign, a bind, and a pipe/closure expression.
+
+count := 5
+
+doubled := count * 2
+
+job.ctl = "stop"
+
+bind /srv/logs, /n/logs
+
+jobs | where { |j| j.status == "running" }

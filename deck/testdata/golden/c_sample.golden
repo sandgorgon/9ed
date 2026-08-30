@@ -1,0 +1,6 @@
+preprocessor [0,40) "#include <stdio.h>"
+struct    [40,112) "typedef struct {"
+enum      [112,146) "enum Color { RED, GREEN, BLUE };"
+decl      [146,165) "int global_count;"
+func      [165,207) "int add(int a, int b) {"
+func      [207,317) "int main(int argc, char **argv) {"

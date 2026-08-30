@@ -1,0 +1,3 @@
+preamble  [0,88) "#!/bin/bash"
+func      [88,163) "greet() {"
+func      [163,284) "cleanup()"
