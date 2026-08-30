@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- `cmd/9ed`: four navigation/ergonomics items (M10) — an unknown file
+  extension now opens as a single `"text"` card (`deck.PlainSegmenter`)
+  instead of 9ed refusing to open the file at all; `gg`/`G` jump to the
+  first/last card in Nav mode; `PgUp`/`PgDn` move the cursor by a fixed
+  amount; `Ctrl+Up`/`Ctrl+Down` jump to the previous/next card's full
+  body from *inside* Edit mode (bounded, not wrapping), replacing the
+  Esc→j/k→Enter round-trip — this is also how reading through a file
+  works now: Enter once, then page forward through every card.
+  Two real bugs surfaced and got fixed during tmux verification, not
+  caught by unit tests alone (both now covered by regression tests too):
+  (1) every keypress reaches `Update` *twice* — once as the raw
+  `input.KeyEvent` (`tui`'s `App.HandleInput` dispatches it
+  unconditionally) and once as whatever `Msg` the focused widget's
+  `onEvent` produced — so resetting `gg`'s pending-first-press flag
+  unconditionally at the top of `Update` canceled the first `g` before
+  the second press's own `navG` ever arrived; fixed by resetting it
+  individually in every branch that's a genuine alternate action,
+  never in the raw-`KeyEvent` case's harmless fall-through a lone
+  `g`/`j`/`k`/`o`/`O`/Enter's redundant echo hits. (2) the cross-card
+  jump's `editView` needs an explicit `.Key()` so `tui`'s reconciler
+  mounts a fresh `TextArea` per card instead of reusing the retained
+  instance (`Value` only applies at mount) — keying by `m.cursor`
+  wasn't quite enough: abandoning an untouched inserted card during a
+  *forward* jump (see M9) can leave the cursor's raw index unchanged
+  even though the card now shown there is different (removing a card
+  shifts what follows into its old slot), so it's keyed by the card's
+  own `Span` instead, which is unique per live card by construction.
 - `cmd/9ed`: Nav-mode `o`/`O` (M9) — insert a new, empty card and drop
   straight into Edit mode on it, vim-style: `o` after the cursor, `O`
   before it. Fixes the previous only way to add a card (type it into the

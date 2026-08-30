@@ -45,6 +45,54 @@ func (m *model) insertCard(idx, pos int) {
 	m.edited = shifted
 }
 
+// isEmptyInsert reports whether m.cards[i] is an untouched card from
+// insertCard — never edited, so leaving it (via Esc or a cross-card
+// jump — see abandonEmptyInsert/jumpCard) should abandon it rather than
+// leave a blank "new" row behind.
+func (m *model) isEmptyInsert(i int) bool {
+	return m.cards[i].Kind == newCardKind && m.cardBody(i) == ""
+}
+
+// abandonEmptyInsert removes the current card if isEmptyInsert(m.cursor)
+// — used directly by Esc, and by jumpCard before it moves the cursor
+// elsewhere.
+func (m *model) abandonEmptyInsert() {
+	if !m.isEmptyInsert(m.cursor) {
+		return
+	}
+	m.removeCard(m.cursor)
+	if m.cursor >= len(m.cards) {
+		m.cursor = max(len(m.cards)-1, 0)
+	}
+	m.view.publish(m.path, m.src, m.cards, m.edited)
+}
+
+// jumpCard moves the cursor by delta while staying in Edit mode —
+// bounded, not wrapping, matching navUp/navDown. If the card being left
+// is an untouched insert, abandonEmptyInsert removes it first; a
+// forward jump (delta > 0) then returns immediately rather than moving
+// again, since removing a card shifts everything after it down by one,
+// so the cursor (left unchanged by the removal, barring the removed
+// card having been last) already points at what was originally the
+// *next* card — applying +1 on top of that would overshoot by one. A
+// backward jump doesn't have this problem: removal never moves anything
+// before the removed index, so the normal -1 from that same unchanged
+// cursor still lands correctly on what was originally at idx-1.
+func (m *model) jumpCard(delta int) {
+	abandoning := m.isEmptyInsert(m.cursor)
+	if abandoning {
+		m.abandonEmptyInsert()
+		if delta > 0 {
+			return
+		}
+	}
+	next := m.cursor + delta
+	if next < 0 || next >= len(m.cards) {
+		return
+	}
+	m.cursor = next
+}
+
 // removeCard splices m.cards[idx] out, shifting every later card — and
 // every edited key above idx — down by one, dropping any entry at idx.
 // Only used to silently undo an insertCard the user backed out of

@@ -39,11 +39,7 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
 		return 1
 	}
-	seg, err := segmenterFor(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "9ed:", err)
-		return 1
-	}
+	seg := segmenterFor(path)
 
 	writes := make(chan p9WriteMsg)
 	m := newModel(path, src, seg, seg.Segment(src), writes)
@@ -66,23 +62,27 @@ func run() int {
 	return 0
 }
 
-// segmenterFor picks a deck.Segmenter by file extension.
-func segmenterFor(path string) (deck.Segmenter, error) {
+// segmenterFor picks a deck.Segmenter by file extension, falling back to
+// deck.PlainSegmenter (one whole-file card) for anything it doesn't
+// recognize — the same "no structure found" shape every other Segmenter
+// already degrades to, just applied unconditionally instead of refusing
+// to open the file at all.
+func segmenterFor(path string) deck.Segmenter {
 	switch filepath.Ext(path) {
 	case ".go":
-		return deck.GoSegmenter{}, nil
+		return deck.GoSegmenter{}
 	case ".md", ".markdown":
-		return deck.MarkdownSegmenter{}, nil
+		return deck.MarkdownSegmenter{}
 	case ".sh", ".bash":
-		return deck.BashSegmenter{}, nil
+		return deck.BashSegmenter{}
 	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
-		return deck.CSegmenter{}, nil
+		return deck.CSegmenter{}
 	case ".hs":
-		return deck.HaskellSegmenter{}, nil
+		return deck.HaskellSegmenter{}
 	case ".kyu":
-		return deck.KyuSegmenter{}, nil
+		return deck.KyuSegmenter{}
 	default:
-		return nil, fmt.Errorf("no segmenter for %q files yet", filepath.Ext(path))
+		return deck.PlainSegmenter{}
 	}
 }
 
@@ -99,6 +99,14 @@ type model struct {
 
 	cursor  int
 	editing bool
+
+	// pendingG is true right after a lone 'g' in Nav mode, waiting to
+	// see if a second 'g' completes vim's "go to first card" — reset by
+	// every other Update branch that represents a real alternate
+	// action (see the navG case for why that reset can't just live
+	// unconditionally at the top of Update instead), so an unrelated
+	// 'g' somewhere later never falsely completes it.
+	pendingG bool
 
 	// edited holds a card's current text once it diverges from its
 	// original src[Span[0]:Span[1]] slice — sparse, since most cards in
@@ -199,7 +207,17 @@ type navMsg int
 const (
 	navUp navMsg = iota
 	navDown
+	navG        // a lone 'g' — see model.pendingG
+	navLast     // 'G'
+	navPageUp   // PgUp
+	navPageDown // PgDn
 )
+
+// navPageSize is how far PgUp/PgDn move the cursor — a fixed amount, not
+// tied to the real viewport height: List already scrolls to keep the
+// cursor row visible, so an exact match isn't needed for it to look and
+// feel like a page jump.
+const navPageSize = 10
 
 type enterEditMsg struct{}
 type editChangedMsg struct{ value string }
@@ -209,16 +227,48 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case navMsg:
 		switch v {
 		case navUp:
+			m.pendingG = false
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case navDown:
+			m.pendingG = false
 			if m.cursor < len(m.cards)-1 {
 				m.cursor++
 			}
+		case navG:
+			// Every keypress reaches Update twice — once as the raw
+			// input.KeyEvent (tui/app.go's HandleInput dispatches it
+			// unconditionally, synchronously) and once, asynchronously,
+			// as whatever Msg the focused widget's onEvent produced
+			// (see listEvent) — so pendingG can't just be reset
+			// unconditionally at the top of Update: by the time a
+			// second 'g' press's own navG arrives, its *own* raw
+			// KeyEvent dispatch would already have reset the flag the
+			// first 'g' just set. Resetting it individually in every
+			// *other* branch below (never in the raw KeyEvent case's
+			// harmless fall-through, which is exactly what a lone 'g'
+			// or 'j'/'k'/'o'/'O'/Enter's redundant raw echo hits)
+			// avoids that.
+			if m.pendingG {
+				m.cursor = 0
+				m.pendingG = false
+			} else {
+				m.pendingG = true
+			}
+		case navLast:
+			m.pendingG = false
+			m.cursor = max(len(m.cards)-1, 0)
+		case navPageUp:
+			m.pendingG = false
+			m.cursor = max(m.cursor-navPageSize, 0)
+		case navPageDown:
+			m.pendingG = false
+			m.cursor = min(m.cursor+navPageSize, max(len(m.cards)-1, 0))
 		}
 
 	case enterEditMsg:
+		m.pendingG = false
 		if len(m.cards) > 0 {
 			m.editing = true
 		}
@@ -228,6 +278,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	case insertMsg:
+		m.pendingG = false
 		idx, pos := 0, 0
 		if len(m.cards) > 0 {
 			idx, pos = m.cursor+1, m.cards[m.cursor].Span[1]
@@ -272,6 +323,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		// excludes ModCtrl, and nothing else in its switch matches 's',
 		// so it's a no-op there, never a stray inserted character.
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 's' {
+			m.pendingG = false
 			return m, m.saveCmd()
 		}
 		if m.editing {
@@ -288,14 +340,22 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				// correctness requirement: Save's resegmentation would
 				// drop it either way, since an untouched zero-width
 				// span reassembles to nothing.
-				if m.cards[m.cursor].Kind == newCardKind && m.cardBody(m.cursor) == "" {
-					m.removeCard(m.cursor)
-					if m.cursor >= len(m.cards) {
-						m.cursor = max(len(m.cards)-1, 0)
-					}
-					m.view.publish(m.path, m.src, m.cards, m.edited)
-				}
+				m.abandonEmptyInsert()
 				m.editing = false
+				return m, nil
+			}
+			// Ctrl+Up/Down jump to the previous/next card's body
+			// without leaving Edit mode — confirmed free of TextArea's
+			// own key claims (widget/textarea.go's handleKey has no
+			// Ctrl+Up/Down case), so, like plain Esc, they reach here
+			// unclaimed.
+			if v.Mod&input.ModCtrl != 0 && v.Key == input.KeyDown {
+				m.jumpCard(1)
+				return m, nil
+			}
+			if v.Mod&input.ModCtrl != 0 && v.Key == input.KeyUp {
+				m.jumpCard(-1)
+				return m, nil
 			}
 			return m, nil // never fall through to the 'q' check below:
 			// 'q' must be an ordinary character while editing text.
@@ -325,7 +385,7 @@ func (m *model) navView() tui.Node {
 	}
 
 	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: style.DefaultDark()}, listEvent)
-	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k or ↑/↓: move   enter: edit   o/O: insert   ^s: save   q: quit",
+	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   enter: edit   o/O: insert   ^s: save   q: quit",
 		m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 
 	return tui.Box(layout.Vertical,
@@ -353,7 +413,22 @@ func (m *model) editView() tui.Node {
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
-	})
+	}).Key(card.Span)
+	// Keyed by the card's own Span, not m.cursor — TextArea's Value is
+	// only applied at mount (tui's reconciler otherwise matches by tree
+	// position alone, per docs/DESIGN.md §3.1, and this Node's tree
+	// position never changes between cards), so without a distinguishing
+	// key a cross-card jump (Ctrl+Up/Down, see jumpCard) would reuse the
+	// previous card's retained widget instance and keep showing its
+	// content. Keying by m.cursor's raw index isn't quite enough on its
+	// own: jumpCard's abandon-during-forward-jump case (see its own doc
+	// comment) can leave the cursor's *value* unchanged even though the
+	// card actually shown there is now a different one — abandoning
+	// removes a card ahead of it in the same slice, so whatever shifts
+	// into m.cursor's old slot is new content at the same index. Span is
+	// unique per currently-live card (the coverage invariant guarantees
+	// no two cards overlap), so it changes exactly when the shown card
+	// does, covering that case too.
 	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^s: save", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 
@@ -379,6 +454,14 @@ func listEvent(e input.Event) tui.Msg {
 		return insertBelow
 	case ke.Rune == 'O':
 		return insertAbove
+	case ke.Rune == 'g':
+		return navG
+	case ke.Rune == 'G':
+		return navLast
+	case ke.Key == input.KeyPgUp:
+		return navPageUp
+	case ke.Key == input.KeyPgDown:
+		return navPageDown
 	}
 	return nil
 }

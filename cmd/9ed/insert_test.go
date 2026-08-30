@@ -233,3 +233,94 @@ func TestListEventInsertKeys(t *testing.T) {
 		t.Errorf("listEvent('O') = %v, want insertAbove", got)
 	}
 }
+
+// TestJumpCard covers the cross-card jump (M10) and its interaction with
+// an untouched inserted card: a plain jump from a real card just moves
+// the cursor (bounded, not wrapping), but jumping away from an empty
+// insertCard result abandons it first — and, per jumpCard's doc comment,
+// a forward jump must NOT then also apply +1 on top of the shift
+// abandonment already caused, while a backward jump still applies -1
+// normally.
+func TestJumpCard(t *testing.T) {
+	realCards := func() []deck.Card {
+		return []deck.Card{
+			{Title: "A", Span: [2]int{0, 1}, Kind: "func"},
+			{Title: "B", Span: [2]int{1, 2}, Kind: "func"},
+			{Title: "C", Span: [2]int{2, 3}, Kind: "func"},
+		}
+	}
+	withEmptyInsert := func() []deck.Card {
+		return []deck.Card{
+			{Title: "A", Span: [2]int{0, 1}, Kind: "func"},
+			{Span: [2]int{1, 1}, Kind: newCardKind}, // untouched insert
+			{Title: "B", Span: [2]int{1, 2}, Kind: "func"},
+			{Title: "C", Span: [2]int{2, 3}, Kind: "func"},
+		}
+	}
+
+	t.Run("forward from a real card just moves the cursor", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abc"), cards: realCards(), cursor: 0, view: &bufferView{}}
+		m.jumpCard(1)
+		if m.cursor != 1 || len(m.cards) != 3 {
+			t.Fatalf("cursor=%d cards=%+v", m.cursor, m.cards)
+		}
+	})
+
+	t.Run("backward from a real card just moves the cursor", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abc"), cards: realCards(), cursor: 2, view: &bufferView{}}
+		m.jumpCard(-1)
+		if m.cursor != 1 || len(m.cards) != 3 {
+			t.Fatalf("cursor=%d cards=%+v", m.cursor, m.cards)
+		}
+	})
+
+	t.Run("bounded at the last card, no wraparound", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abc"), cards: realCards(), cursor: 2, view: &bufferView{}}
+		m.jumpCard(1)
+		if m.cursor != 2 {
+			t.Errorf("cursor = %d, want unchanged 2 (no wraparound)", m.cursor)
+		}
+	})
+
+	t.Run("bounded at the first card, no wraparound", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abc"), cards: realCards(), cursor: 0, view: &bufferView{}}
+		m.jumpCard(-1)
+		if m.cursor != 0 {
+			t.Errorf("cursor = %d, want unchanged 0 (no wraparound)", m.cursor)
+		}
+	})
+
+	t.Run("forward off an empty insert lands on the following card, not past it", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abcd"), cards: withEmptyInsert(), cursor: 1, view: &bufferView{}}
+		m.jumpCard(1)
+		if len(m.cards) != 3 {
+			t.Fatalf("expected the empty insert to be abandoned: %+v", m.cards)
+		}
+		if m.cursor != 1 || m.cards[m.cursor].Title != "B" {
+			t.Fatalf("cursor=%d cards=%+v, want cursor on B", m.cursor, m.cards)
+		}
+	})
+
+	t.Run("backward off an empty insert lands on the preceding card", func(t *testing.T) {
+		m := &model{path: "f", src: []byte("abcd"), cards: withEmptyInsert(), cursor: 1, view: &bufferView{}}
+		m.jumpCard(-1)
+		if len(m.cards) != 3 {
+			t.Fatalf("expected the empty insert to be abandoned: %+v", m.cards)
+		}
+		if m.cursor != 0 || m.cards[m.cursor].Title != "A" {
+			t.Fatalf("cursor=%d cards=%+v, want cursor on A", m.cursor, m.cards)
+		}
+	})
+
+	t.Run("forward off an empty insert that was the last card lands on the new last card", func(t *testing.T) {
+		cards := []deck.Card{
+			{Title: "A", Span: [2]int{0, 1}, Kind: "func"},
+			{Span: [2]int{1, 1}, Kind: newCardKind},
+		}
+		m := &model{path: "f", src: []byte("ab"), cards: cards, cursor: 1, view: &bufferView{}}
+		m.jumpCard(1)
+		if len(m.cards) != 1 || m.cursor != 0 || m.cards[0].Title != "A" {
+			t.Fatalf("cursor=%d cards=%+v, want the sole remaining card A", m.cursor, m.cards)
+		}
+	})
+}

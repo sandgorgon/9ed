@@ -1,0 +1,5 @@
+sample.txt — fixture for PlainSegmenter's golden test.
+
+This is an arbitrary text file with no structure 9ed knows how to parse:
+no headings, no functions, nothing — just prose, exactly the case
+PlainSegmenter exists for.
