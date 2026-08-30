@@ -1,5 +1,7 @@
 # 9sh: ast.DefineStmt has no position for its own leading identifier
 
+**Issue:** https://github.com/sandgorgon/9sh/issues/1
+
 **Repo:** github.com/sandgorgon/9sh
 **Origin:** surfaced while writing 9ed's `KyuSegmenter` (`deck/kyu.go`) — a real,
 AST-based card segmenter for `.kyu` files, the same spirit as 9ed's existing

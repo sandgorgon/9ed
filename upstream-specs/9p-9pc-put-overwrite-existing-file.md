@@ -1,5 +1,7 @@
 # 9p: 9pc put can't write to a file that already exists
 
+**Issue:** https://github.com/sandgorgon/9p/issues/6
+
 **Repo:** github.com/sandgorgon/9p
 **Origin:** surfaced verifying 9ed's M8 write-side 9P surface (`/cards/<n>/body`
 becoming writable) live against a real running 9ed instance, using `9pc put` as
