@@ -34,6 +34,32 @@ import (
 // "dev" for a plain `go build`/`go run`.
 var version = "dev"
 
+const helpText = `usage: 9ed <file>
+       9ed -h | --help
+       9ed -version | --version
+
+9ed decomposes <file> into structurally meaningful cards (see package
+deck) instead of editing it as an undifferentiated block of lines.
+
+Nav mode:
+  j/k, ↑/↓     move
+  gg / G       first / last card
+  {n}G         goto line n
+  PgUp/PgDn    page up/down
+  /            filter cards
+  enter        edit current card
+  o / O        insert card below / above
+  t            toggle light/dark theme
+  ^s           save
+  q, ^c        quit
+
+Edit mode:
+  esc          back to Nav
+  ^↑ / ^↓      jump to previous / next card, staying in Edit
+  ^s           save
+  ^c           quit
+`
+
 func main() {
 	os.Exit(run())
 }
@@ -45,6 +71,10 @@ func main() {
 func run() int {
 	if len(os.Args) == 2 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
 		fmt.Println("9ed " + version)
+		return 0
+	}
+	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
+		fmt.Print(helpText)
 		return 0
 	}
 	if len(os.Args) != 2 {
@@ -609,7 +639,7 @@ func (m *model) editView() tui.Node {
 	// unique per currently-live card (the coverage invariant guarantees
 	// no two cards overlap), so it changes exactly when the shown card
 	// does, covering that case too.
-	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^s: save", m.path, m.dirtyMark(), card.Kind)),
+	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^s: save   ^c: quit", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 
 	return tui.Box(layout.Vertical,
