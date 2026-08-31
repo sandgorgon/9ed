@@ -153,6 +153,14 @@ type model struct {
 
 	saveErr string // last save's error, if any; cleared by the next successful save
 
+	// theme is the active color theme, initially style.DefaultDark or
+	// style.DefaultLight per style.DetectAppearance's $COLORFGBG-based
+	// guess (see newModel), and flippable at runtime with 't' (see the
+	// input.KeyEvent case in Update) — every render reads m.theme rather
+	// than calling style.DefaultDark() directly, so the toggle actually
+	// takes effect.
+	theme style.Theme
+
 	// view publishes path/src/cards/edited for the 9P server (its own
 	// goroutine — see bufferview.go/fs9p.go) to read safely; called
 	// after Update handles anything that changes one of those fields.
@@ -167,7 +175,20 @@ type model struct {
 }
 
 func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg) *model {
-	return &model{path: path, src: src, seg: seg, cards: cards, view: &bufferView{}, writes: writes}
+	theme := style.Default(style.DetectAppearance(os.Getenv))
+	return &model{path: path, src: src, seg: seg, cards: cards, theme: theme, view: &bufferView{}, writes: writes}
+}
+
+// toggleTheme flips between the light and dark defaults — a plain swap,
+// not a 3-way cycle back through auto-detection: once the user has
+// picked one for this session, that choice sticks until they toggle
+// again, regardless of what $COLORFGBG says.
+func (m *model) toggleTheme() {
+	if m.theme.Appearance == style.Light {
+		m.theme = style.DefaultDark()
+	} else {
+		m.theme = style.DefaultLight()
+	}
 }
 
 // cardBody returns card i's current text: the edited version if one
@@ -202,7 +223,7 @@ func (m *model) dirtyMark() string {
 // failed save, Muted otherwise.
 func (m *model) helpStyle() cell.Style {
 	if m.saveErr != "" {
-		return cell.Style{Fg: style.DefaultDark().Error}
+		return cell.Style{Fg: m.theme.Error}
 	}
 	return cell.Style{Fg: cell.ANSIColor(8)}
 }
@@ -452,6 +473,10 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			return m, nil // never fall through to the 'q' check below:
 			// 'q' must be an ordinary character while editing text.
 		}
+		if v.Rune == 't' {
+			m.toggleTheme()
+			return m, nil
+		}
 		if v.Rune == 'q' {
 			return m, tui.Quit()
 		}
@@ -488,13 +513,13 @@ func (m *model) navView() tui.Node {
 		}
 	}
 
-	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: style.DefaultDark()}, m.listEvent)
+	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: m.theme}, m.listEvent)
 
 	var help tui.Node
 	if m.searching {
 		help = tui.Text(fmt.Sprintf("/%s  (%d match%s)  —  enter: go   esc: cancel", m.query, len(indices), pluralS(len(indices))), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   o/O: insert   ^s: save   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   o/O: insert   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -512,7 +537,7 @@ func pluralS(n int) string {
 }
 
 func (m *model) editView() tui.Node {
-	theme := style.DefaultDark()
+	theme := m.theme
 	card := m.cards[m.cursor]
 	body := m.cardBody(m.cursor)
 

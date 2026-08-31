@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- `cmd/9ed`: a runtime light/dark theme toggle (`t`, Nav mode). `tui`'s
+  `style` package already ships everything this needed —
+  `style.DefaultDark`/`DefaultLight`, `style.DetectAppearance` (a
+  `$COLORFGBG`-based guess) — 9ed just wasn't using any of it: every
+  render called `style.DefaultDark()` directly instead of reading shared
+  state. `model.theme` is now the single source every render (`navView`'s
+  `widget.List`, `editView`'s `widget.TextArea` and Go-highlight theme,
+  `helpStyle`'s error color) reads from, seeded at startup via
+  `style.Default(style.DetectAppearance(os.Getenv))` and flipped in place
+  by `toggleTheme` — a plain swap between the two defaults, not a 3-way
+  cycle back through auto-detection, so a session's choice sticks once
+  made. Verified live in tmux: `t` visibly swaps the border/highlight
+  colors in both Nav and Edit mode, matching `DefaultDark`'s and
+  `DefaultLight`'s RGB values exactly.
+- Namespace-aware file I/O (`cmd/9ed/nsopen.go`): when `9sh` is reachable
+  via `$_9SH_UNIX_SOCK` (set only when it's started with `-listen-unix`),
+  9ed's file open (`run()`, `main.go`) and Save (`atomicWrite`, `save.go`)
+  now dial into its namespace and walk `/local/<path-relative-to-cwd>`
+  there instead of going straight to the OS — honoring any bind the user
+  has set up at `/local` rather than silently bypassing it. Save
+  reproduces `atomicWrite`'s crash-safe temp-file+rename trick over 9P
+  (create a temp file alongside the target, then a Name-only `WStat`
+  rename — `dirfs`'s own `WStat` already implements that as a plain
+  `os.Rename`, so the same atomic-replace guarantee holds). Both fall
+  back to the existing plain OS path whenever the namespace doesn't apply
+  — no `9sh`, a path outside cwd, or any failure along the way — so
+  running standalone (or under a `9sh` not listening) is unchanged. This
+  is the consumer side of the gap the entry below identified; see
+  [`upstream-specs/9sh-bind-local-unix-socket-9p-server.md`](upstream-specs/9sh-bind-local-unix-socket-9p-server.md)
+  for how it closed. Verified live in tmux: rebinding `/local`
+  (`bind /local/sub, /local`) in a running `9sh` session changes both
+  what a freshly opened 9ed buffer reads and where Ctrl+S writes, while
+  the un-rebound file on disk stays untouched.
+- Bumped `9sh` to v0.3.1, which shipped the Unix-socket
+  `dial`/`-listen-unix`/`$_9SH_UNIX_SOCK` support the entry above relies
+  on.
 - Refined the earlier `9auth` conclusion: checked `9sh`'s actual `remote`/
   `ns` packages (not assumed) and confirmed 9ed should never adopt
   `9auth`/TLS directly — `9sh` already has a complete TCP+TLS+9auth
