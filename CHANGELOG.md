@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `cmd/9ed`: added `-h`/`--help`, printing usage plus the full Nav-mode
+  and Edit-mode keybinding list — previously the only recognized flag
+  was `-version`/`--version`, and running with no/wrong args just
+  printed a one-line `usage: 9ed <file>` to stderr. Also fixed the
+  Edit-mode status line itself, which advertised only `esc: back to
+  nav` and `^s: save` while silently supporting `^up`/`^down` (jump to
+  the previous/next card without leaving Edit, see `jumpCard`) and the
+  global `^c: quit` — both real bindings, neither previously documented
+  anywhere in the UI. Verified live in tmux: the Edit-mode status line
+  renders the added text at full terminal width without truncation.
+
 ## 0.1.1 - 2026-08-31
 
 - `cmd/9ed`: fixed the package doc `go doc`/pkg.go.dev showed for this
