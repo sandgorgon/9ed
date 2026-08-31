@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2 - 2026-08-31
+
 - `cmd/9ed`: added `-h`/`--help`, printing usage plus the full Nav-mode
   and Edit-mode keybinding list — previously the only recognized flag
   was `-version`/`--version`, and running with no/wrong args just
