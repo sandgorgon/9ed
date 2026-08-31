@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Public-repo hygiene: bumped `.github/workflows/ci.yml`'s
+  `actions/checkout`/`actions/setup-go` to their latest majors (v7),
+  clearing the Node 20 deprecation warning CI had been logging. Added
+  `.github/workflows/release.yml` (tag-triggered, builds
+  `linux/amd64`, `linux/arm64`, `darwin/arm64`, `darwin/amd64` binaries
+  and publishes a GitHub Release with `.tar.gz`/`.sha256` assets),
+  mirroring `9sh`'s own release workflow — the only sibling repo that,
+  like 9ed, ships a binary rather than a library. That needed a
+  `-version`/`--version` flag (`main.go`), set at release-build time via
+  `-ldflags -X main.version=...`, printing `"dev"` for a plain
+  `go build`/`go run`. README gained a CI badge and an Install section
+  (prebuilt binary from Releases, or build from source) in the same
+  shape as `9sh`'s. Deliberately skipped a `CONTRIBUTING.md`: `9p` and
+  `9auth` have one, but both declare hard project-specific invariants
+  (`9p`: stdlib-only) that warrant it; `9sh` — the closer analog, also a
+  binary tool, not a library — has none, and 9ed doesn't practice the
+  Gitflow branching model `9p`'s describes, so copying it would
+  document a workflow this repo doesn't actually follow.
+
 ## 0.1.0 - 2026-08-30
 
 - `cmd/9ed`: a runtime light/dark theme toggle (`t`, Nav mode). `tui`'s

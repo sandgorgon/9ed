@@ -1,5 +1,7 @@
 # 9ed
 
+[![CI](https://github.com/sandgorgon/9ed/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/sandgorgon/9ed/actions/workflows/ci.yml?query=branch%3Amaster)
+
 A segmented/card TUI text editor: two modes (Nav/Edit) over a file decomposed
 into structurally meaningful **cards** — a Go func, a Markdown heading, a
 [`kyu`](https://github.com/sandgorgon/9sh) top-level statement, and so on.
@@ -23,8 +25,26 @@ below). `9auth` is deliberately not integrated directly; see
 [`upstream-specs/`](upstream-specs/) for gaps this project has filed
 against its own dependencies along the way.
 
+## Install
+
+Grab a prebuilt binary from the
+[Releases page](https://github.com/sandgorgon/9ed/releases) — each
+release has `.tar.gz`s for `linux/amd64`, `linux/arm64`,
+`darwin/arm64`, and `darwin/amd64`, plus a `.sha256` to verify against:
+
 ```
-go get github.com/sandgorgon/9ed
+curl -LO https://github.com/sandgorgon/9ed/releases/download/<tag>/9ed_<tag>_linux_amd64.tar.gz
+tar xzf 9ed_<tag>_linux_amd64.tar.gz
+```
+
+That unpacks a directory with the `9ed` binary, `LICENSE`, and this
+`README.md`. Put the binary somewhere on your `PATH`.
+
+Or build from source:
+
+```
+git clone https://github.com/sandgorgon/9ed.git && cd 9ed
+go build -o 9ed ./cmd/9ed
 ```
 
 ## What this is

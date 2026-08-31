@@ -29,6 +29,11 @@ import (
 	"github.com/sandgorgon/9ed/deck"
 )
 
+// version is overridden at build time via -ldflags "-X main.version=vX.Y.Z"
+// (see .github/workflows/release.yml), matching 9sh's own convention —
+// "dev" for a plain `go build`/`go run`.
+var version = "dev"
+
 func main() {
 	os.Exit(run())
 }
@@ -38,6 +43,10 @@ func main() {
 // call it directly once there's a defer in scope (see serveBuffer's
 // stop).
 func run() int {
+	if len(os.Args) == 2 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Println("9ed " + version)
+		return 0
+	}
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: 9ed <file>")
 		return 1
