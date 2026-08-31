@@ -36,10 +36,20 @@ func run() int {
 	}
 	path := os.Args[1]
 
-	src, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "9ed:", err)
-		return 1
+	// Prefer 9sh's namespace when one is reachable (see nsopen.go): it
+	// honors any rebind the user has set up at /local, which raw OS
+	// calls would silently bypass. Outside 9sh, or under a 9sh that
+	// wasn't started with -listen-unix, nsReadFile always reports
+	// ok=false and this falls back to the plain os.ReadFile 9ed has
+	// always used.
+	src, ok := nsReadFile(path)
+	if !ok {
+		var err error
+		src, err = os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "9ed:", err)
+			return 1
+		}
 	}
 	seg := segmenterFor(path)
 

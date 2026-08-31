@@ -67,7 +67,22 @@ func (m *model) saveCmd() tui.Cmd {
 	}
 }
 
-// atomicWrite writes data to path by writing a temp file in the same
+// atomicWrite writes data to path, preferring 9sh's namespace (see
+// nsopen.go's nsSaveFile) when one is reachable — the write-side
+// counterpart to run()'s nsReadFile, so a save honors the same /local
+// rebind the read did instead of quietly falling back to the raw OS
+// path underneath it. nsSaveFile reports ok=false for the same reasons
+// nsReadFile does (no 9sh, path outside cwd, any failure along the
+// way), in which case this falls through to atomicWriteOS exactly as
+// before.
+func atomicWrite(path string, data []byte) error {
+	if nsSaveFile(path, data) {
+		return nil
+	}
+	return atomicWriteOS(path, data)
+}
+
+// atomicWriteOS writes data to path by writing a temp file in the same
 // directory (so the final rename is atomic — same filesystem) and
 // renaming it into place, rather than truncating path directly: a
 // crash or a full disk mid-write never leaves path partially
@@ -75,9 +90,9 @@ func (m *model) saveCmd() tui.Cmd {
 // existing mode (falling back to 0644 for a brand-new file) so Save
 // never silently strips e.g. an executable bit. No incremental writes
 // ever happen outside this function — every 9ed Save is exactly one of
-// these calls, matching the "no incremental disk writes" design
-// decision.
-func atomicWrite(path string, data []byte) error {
+// these calls (via atomicWrite), matching the "no incremental disk
+// writes" design decision.
+func atomicWriteOS(path string, data []byte) error {
 	mode := os.FileMode(0o644)
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode().Perm()
