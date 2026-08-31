@@ -1,7 +1,15 @@
-// Command 9ed is the segmented/card editor. M3 adds Edit mode: Enter
-// focuses the current card in a widget.TextArea (with Go cards syntax
-// highlighted), Esc returns to Nav mode. Edits live only in memory —
-// Save (M4) is what reassembles and writes the file.
+// Command 9ed is a segmented/card TUI text editor: `9ed <file>` decomposes
+// the file into structurally meaningful cards (see package deck) instead
+// of editing it as an undifferentiated block of lines. Nav mode navigates
+// the card list; Enter focuses the current card in Edit mode for direct
+// text editing, Esc returns to Nav. Ctrl+S reassembles every card back
+// into the file and writes it atomically; 't' toggles the light/dark
+// theme.
+//
+// Every running buffer also serves its own state over 9P (see fs9p.go) —
+// a Unix-domain-socket server scriptable from kyu or any shell — and,
+// under a 9sh session started with -listen-unix, opens and saves through
+// that session's namespace instead of raw OS calls (see nsopen.go).
 package main
 
 import (

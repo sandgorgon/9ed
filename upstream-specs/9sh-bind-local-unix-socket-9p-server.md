@@ -1,5 +1,12 @@
 # 9sh: no way to bind a local Unix-socket 9P server into the namespace
 
+**Status:** Resolved in `9sh` v0.3.1 — `dial(addr)` now accepts a
+Unix-socket path directly (issue #2), exactly as proposed below. `9sh`
+also shipped `-listen-unix`/`$_9SH_UNIX_SOCK` in the same release (a
+separate, `9sh`-side addition, github.com/sandgorgon/9sh#3, not proposed
+here) — together these are what `cmd/9ed/nsopen.go` actually consumes;
+see the README's "Namespace-aware file I/O" section.
+
 **Issue:** https://github.com/sandgorgon/9sh/issues/2
 
 **Repo:** github.com/sandgorgon/9sh
