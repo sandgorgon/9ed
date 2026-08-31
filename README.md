@@ -13,7 +13,7 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.1.0`): M0–M12 implemented — deck segmentation for all six
+Status (`v0.1.1`): M0–M12 implemented — deck segmentation for all six
 target languages (Markdown, Go, Bash, C/C++, Haskell, `kyu`, plus a
 plain-text fallback for anything else), Nav/Edit mode shell with `o`/`O`
 card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump navigation, a

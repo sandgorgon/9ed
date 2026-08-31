@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-08-31
+
+- `cmd/9ed`: fixed the package doc `go doc`/pkg.go.dev showed for this
+  command — six files (`fs9p.go`, `goto.go`, `insert.go`, `namespace.go`,
+  `nsopen.go`, `search.go`) each carry an explanatory header comment
+  with no blank line before `package main`, so every one of them was a
+  candidate for Go's doc tooling to pick as "the" package doc; it picked
+  `fs9p.go`'s (alphabetically first), never `main.go`'s real one — caught
+  by checking the freshly-indexed pkg.go.dev page directly, not just
+  local `go doc`. Fixed by adding a blank line before each `package
+  main`, which disqualifies a comment from being attached as the
+  package doc while leaving it as an ordinary file comment; `deck/deck.go`
+  had no such conflict to begin with.
 - Public-repo hygiene: bumped `.github/workflows/ci.yml`'s
   `actions/checkout`/`actions/setup-go` to their latest majors (v7),
   clearing the Node 20 deprecation warning CI had been logging. Added
