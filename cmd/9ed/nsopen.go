@@ -16,6 +16,7 @@
 // returns ok=false and the caller falls back to plain os.ReadFile/
 // atomicWrite — running outside 9sh, or under a 9sh started without
 // -listen-unix, must keep behaving exactly like today.
+
 package main
 
 import (

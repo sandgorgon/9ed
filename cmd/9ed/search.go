@@ -5,6 +5,7 @@
 // substring match against Title — not fuzzy/subsequence scoring, which
 // would be a lot more code for a "jump to the function named X" use case
 // substring matching already serves well.
+
 package main
 
 import (

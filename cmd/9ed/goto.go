@@ -5,6 +5,7 @@
 // that line and (M12, once tui v0.2.0's TextAreaOptions.InitialCursor
 // existed — see upstream-specs/tui-cursor-offset-and-numeric-gutter.md)
 // places the cursor at the exact line within it.
+
 package main
 
 import (

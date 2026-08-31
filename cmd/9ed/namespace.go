@@ -3,6 +3,7 @@
 // literal mountpoint (no FUSE, no unprivileged OS mount) — it's a
 // Unix-domain-socket address plus a discovery file naming it, meant to
 // be dialed (e.g. by a future 9p CLI client), not mounted.
+
 package main
 
 import (

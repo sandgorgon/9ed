@@ -7,6 +7,7 @@
 // and fs9p.go already iterates m.cards generically. The one real cost is
 // that edited is keyed by raw index, so an insertion has to shift every
 // key at or above the insertion point.
+
 package main
 
 import "github.com/sandgorgon/9ed/deck"
