@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-08-30
+
 - `cmd/9ed`: a runtime light/dark theme toggle (`t`, Nav mode). `tui`'s
   `style` package already ships everything this needed —
   `style.DefaultDark`/`DefaultLight`, `style.DetectAppearance` (a

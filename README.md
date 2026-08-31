@@ -11,15 +11,15 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status: M0–M12 implemented — deck segmentation for all six target languages
-(Markdown, Go, Bash, C/C++, Haskell, `kyu`, plus a plain-text fallback for
-anything else), Nav/Edit mode shell with `o`/`O` card insertion,
-`gg`/`G`/`PgUp`/`PgDn`/cross-card-jump navigation, a Nav-mode typeahead
-filter, precise go-to-line, line numbers, atomic save, a runtime light/dark
-theme toggle (`t`), a 9P server surface for a running buffer with a
-writable `/cards/<n>/body`, and namespace-aware open/save (see
-[Namespace-aware file I/O](#namespace-aware-file-io) below). `9auth` is
-deliberately not integrated directly; see
+Status (`v0.1.0`): M0–M12 implemented — deck segmentation for all six
+target languages (Markdown, Go, Bash, C/C++, Haskell, `kyu`, plus a
+plain-text fallback for anything else), Nav/Edit mode shell with `o`/`O`
+card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump navigation, a
+Nav-mode typeahead filter, precise go-to-line, line numbers, atomic
+save, a runtime light/dark theme toggle (`t`), a 9P server surface for a
+running buffer with a writable `/cards/<n>/body`, and namespace-aware
+open/save (see [Namespace-aware file I/O](#namespace-aware-file-io)
+below). `9auth` is deliberately not integrated directly; see
 [`upstream-specs/`](upstream-specs/) for gaps this project has filed
 against its own dependencies along the way.
 
