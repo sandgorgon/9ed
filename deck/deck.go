@@ -19,6 +19,15 @@ type Card struct {
 	// "preamble", "import"). Meaning is specific to the Segmenter that
 	// produced the card.
 	Kind string
+	// Name is the single identifier this card defines, when it
+	// unambiguously has one (e.g. a func's name) — empty when the card
+	// defines no single name (a "preamble" or "import" card) or more
+	// than one (a grouped var/const/type block with several specs).
+	// Used for lexical cross-reference badges: another card's body is
+	// searched for this as a whole word. A best-effort hint, not a
+	// guaranteed-unique symbol — comments, string literals, and
+	// unrelated identically-named identifiers all count as matches.
+	Name string
 }
 
 // Segmenter decomposes src into an ordered, contiguous, non-overlapping

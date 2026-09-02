@@ -72,7 +72,7 @@ func golden(t *testing.T, name string, cards []Card) {
 func dumpCards(cards []Card) string {
 	var b strings.Builder
 	for _, c := range cards {
-		fmt.Fprintf(&b, "%-9s [%d,%d) %s\n", c.Kind, c.Span[0], c.Span[1], strconv.Quote(c.Title))
+		fmt.Fprintf(&b, "%-9s name=%-12s [%d,%d) %s\n", c.Kind, strconv.Quote(c.Name), c.Span[0], c.Span[1], strconv.Quote(c.Title))
 	}
 	return b.String()
 }

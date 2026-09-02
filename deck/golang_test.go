@@ -34,7 +34,7 @@ func TestGoSegmenter(t *testing.T) {
 			want: []Card{
 				{Kind: "preamble", Title: "package foo"},
 				{Kind: "import", Title: "import \"fmt\""},
-				{Kind: "func", Title: "func Hello() {"},
+				{Kind: "func", Title: "func Hello() {", Name: "Hello"},
 			},
 		},
 		{
@@ -43,7 +43,7 @@ func TestGoSegmenter(t *testing.T) {
 				"// Hello prints a greeting.\nfunc Hello() {}\n",
 			want: []Card{
 				{Kind: "preamble", Title: "package foo"},
-				{Kind: "func", Title: "func Hello() {}"},
+				{Kind: "func", Title: "func Hello() {}", Name: "Hello"},
 			},
 		},
 		{
@@ -54,9 +54,36 @@ func TestGoSegmenter(t *testing.T) {
 				"const C = 2\n",
 			want: []Card{
 				{Kind: "preamble", Title: "package foo"},
-				{Kind: "type", Title: "type T int"},
-				{Kind: "var", Title: "var V = 1"},
-				{Kind: "const", Title: "const C = 2"},
+				{Kind: "type", Title: "type T int", Name: "T"},
+				{Kind: "var", Title: "var V = 1", Name: "V"},
+				{Kind: "const", Title: "const C = 2", Name: "C"},
+			},
+		},
+		{
+			name: "a method's Name is just the method, no receiver prefix",
+			src: "package foo\n\n" +
+				"func (r *T) Bar() {}\n",
+			want: []Card{
+				{Kind: "preamble", Title: "package foo"},
+				{Kind: "func", Title: "func (r *T) Bar() {}", Name: "Bar"},
+			},
+		},
+		{
+			name: "grouped var block has no single Name",
+			src: "package foo\n\n" +
+				"var (\n\tA = 1\n\tB = 2\n)\n",
+			want: []Card{
+				{Kind: "preamble", Title: "package foo"},
+				{Kind: "var", Title: "var (", Name: ""},
+			},
+		},
+		{
+			name: "multi-name single spec has no single Name",
+			src: "package foo\n\n" +
+				"var A, B = 1, 2\n",
+			want: []Card{
+				{Kind: "preamble", Title: "package foo"},
+				{Kind: "var", Title: "var A, B = 1, 2", Name: ""},
 			},
 		},
 	}
@@ -71,9 +98,9 @@ func TestGoSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})
