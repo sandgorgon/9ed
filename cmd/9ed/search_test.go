@@ -340,6 +340,116 @@ func TestSearchSwallowsGlobalKeys(t *testing.T) {
 	})
 }
 
+func TestCommitSearchJumpsToFirstBodyMatch(t *testing.T) {
+	t.Run("lands the cursor on the first body match, not the TextArea default", func(t *testing.T) {
+		m := newBodySearchTestModel() // 0: preamble, 1: Walrus, 2: Beta
+		mm, _ := m.Update(startSearchMsg{})
+		m = mm.(*model)
+		for _, r := range "Walrus" {
+			mm, _ = m.Update(searchInputMsg{r: r})
+			m = mm.(*model)
+		}
+		mm, _ = m.Update(commitSearchMsg{})
+		m = mm.(*model)
+		if !m.editing || m.cursor != 1 {
+			t.Fatalf("editing=%v cursor=%d, want editing=true cursor=1 (Walrus, first match)", m.editing, m.cursor)
+		}
+		re, _ := searchRegexp("Walrus")
+		want := bodyMatches(re, m.cardBody(1))[0][0]
+		if m.gotoLineCursor == nil || *m.gotoLineCursor != want || m.gotoLineCard != 1 {
+			t.Errorf("gotoLineCursor=%v gotoLineCard=%d, want %d and card 1", m.gotoLineCursor, m.gotoLineCard, want)
+		}
+		if m.activeSearch != "Walrus" {
+			t.Errorf("activeSearch = %q, want %q", m.activeSearch, "Walrus")
+		}
+	})
+
+	t.Run("title-only match leaves gotoLineCursor nil (TextArea's own default)", func(t *testing.T) {
+		cards := []deck.Card{{Title: "OnlyTitle", Kind: "func"}}
+		m := &model{path: "f.go", src: []byte(""), cards: cards, view: &bufferView{}}
+		mm, _ := m.Update(startSearchMsg{})
+		m = mm.(*model)
+		for _, r := range "OnlyTitle" {
+			mm, _ = m.Update(searchInputMsg{r: r})
+			m = mm.(*model)
+		}
+		mm, _ = m.Update(commitSearchMsg{})
+		m = mm.(*model)
+		if !m.editing || m.gotoLineCursor != nil {
+			t.Errorf("editing=%v gotoLineCursor=%v, want editing=true gotoLineCursor=nil", m.editing, m.gotoLineCursor)
+		}
+	})
+}
+
+func TestJumpToMatch(t *testing.T) {
+	src := []byte("package p\n\nfunc Walrus() {}\n\nfunc Beta() {\n\tWalrus()\n}\n\nfunc Gamma() {\n\tWalrus()\n}\n")
+	cards := deck.GoSegmenter{}.Segment(src) // 0: preamble, 1: Walrus, 2: Beta, 3: Gamma
+	re, _ := searchRegexp("Walrus")
+	newWalkModel := func() *model {
+		return &model{path: "f.go", src: src, cards: cards, view: &bufferView{}, activeSearch: "Walrus", editing: true}
+	}
+
+	t.Run("forward from the last card's match wraps to the first card with a match", func(t *testing.T) {
+		m := newWalkModel()
+		m.cursor = 3 // Gamma, the last card
+		m.cursorPos = map[int]int{3: bodyMatches(re, m.cardBody(3))[0][0]}
+		m.jumpToMatch(1)
+		if m.cursor != 1 {
+			t.Errorf("cursor = %d, want 1 (wrapped to Walrus, the first card with a match after Gamma)", m.cursor)
+		}
+	})
+
+	t.Run("backward from the first card's match wraps to the last card with a match", func(t *testing.T) {
+		m := newWalkModel()
+		m.cursor = 1 // Walrus, the first matching card
+		m.cursorPos = map[int]int{1: bodyMatches(re, m.cardBody(1))[0][0]}
+		m.jumpToMatch(-1)
+		if m.cursor != 3 {
+			t.Errorf("cursor = %d, want 3 (wrapped backward to Gamma)", m.cursor)
+		}
+	})
+
+	t.Run("forward within the same card finds a second occurrence without leaving it", func(t *testing.T) {
+		src2 := []byte("package p\n\nfunc Beta() {\n\tWalrus()\n\tWalrus()\n}\n")
+		cards2 := deck.GoSegmenter{}.Segment(src2) // 0: preamble, 1: Beta
+		m := &model{path: "f.go", src: src2, cards: cards2, view: &bufferView{}, activeSearch: "Walrus", editing: true, cursor: 1}
+		matches := bodyMatches(re, m.cardBody(1))
+		if len(matches) != 2 {
+			t.Fatalf("test fixture has %d Walrus matches in Beta's body, want 2", len(matches))
+		}
+		m.cursorPos = map[int]int{1: matches[0][0]}
+		m.jumpToMatch(1)
+		if m.cursor != 1 {
+			t.Fatalf("cursor = %d, want unchanged 1 (second match is in the same card)", m.cursor)
+		}
+		if m.gotoLineCursor == nil || *m.gotoLineCursor != matches[1][0] {
+			t.Errorf("gotoLineCursor = %v, want %d (the second match)", m.gotoLineCursor, matches[1][0])
+		}
+	})
+
+	t.Run("a single match anywhere in the file loops back onto itself", func(t *testing.T) {
+		src3 := []byte("package p\n\nfunc Beta() {\n\tWalrus()\n}\n")
+		cards3 := deck.GoSegmenter{}.Segment(src3) // 0: preamble, 1: Beta
+		m := &model{path: "f.go", src: src3, cards: cards3, view: &bufferView{}, activeSearch: "Walrus", editing: true, cursor: 1}
+		onlyMatch := bodyMatches(re, m.cardBody(1))[0][0]
+		m.cursorPos = map[int]int{1: onlyMatch}
+		m.jumpToMatch(1)
+		if m.cursor != 1 || m.gotoLineCursor == nil || *m.gotoLineCursor != onlyMatch {
+			t.Errorf("cursor=%d gotoLineCursor=%v, want cursor=1 and offset %d (looped back to the only match)", m.cursor, m.gotoLineCursor, onlyMatch)
+		}
+	})
+
+	t.Run("no active search is a no-op", func(t *testing.T) {
+		m := newWalkModel()
+		m.activeSearch = ""
+		m.cursor = 1
+		m.jumpToMatch(1)
+		if m.cursor != 1 {
+			t.Errorf("cursor changed to %d with no active search, want unchanged 1", m.cursor)
+		}
+	})
+}
+
 func TestListEventSearchRouting(t *testing.T) {
 	m := &model{}
 	if got := m.listEvent(input.KeyEvent{Rune: '/'}); got != (startSearchMsg{}) {

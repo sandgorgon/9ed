@@ -133,6 +133,92 @@ func prevMatchBefore(matches [][2]int, from int) (span [2]int, ok bool) {
 	return [2]int{}, false
 }
 
+// setJumpTarget sets gotoLineCursor/gotoLineCard to jump the cursor to
+// offset in card idx's body, and bumps jumpGen so editView's TextArea
+// remounts even when idx == m.cursor already. Moving to a *different*
+// card gets a remount for free (its Span differs, so its Key differs —
+// see editView), but TextAreaOptions.InitialCursor is documented as
+// read only once at mount, so repositioning within the *same*
+// already-mounted card (search's Ctrl+N/Ctrl+P landing on another match
+// in the card you're already reading) needs a manufactured remount to
+// take effect at all — the same "InitialCursor won't just apply itself"
+// constraint the jump/return cursor-restore saga (see jumpCard's doc
+// comment) fought for a different reason.
+func (m *model) setJumpTarget(idx, offset int) {
+	m.gotoLineCursor = &offset
+	m.gotoLineCard = idx
+	m.jumpGen++
+}
+
+// liveCursorPos returns the current card's most recently known cursor
+// offset: m.cursorPos if the TextArea has reported one via
+// OnCursorChange, else the explicit gotoLineCursor target if this is
+// the card it was just set for (the first frame after a jump, before
+// any cursor-change event has arrived), else 0.
+func (m *model) liveCursorPos() int {
+	if pos, ok := m.cursorPos[m.cursor]; ok {
+		return pos
+	}
+	if m.gotoLineCursor != nil && m.gotoLineCard == m.cursor {
+		return *m.gotoLineCursor
+	}
+	return 0
+}
+
+// jumpToMatch moves the cursor to the next (delta > 0) or previous
+// (delta < 0) occurrence of m.activeSearch, searching forward/backward
+// from the live cursor position within the current card first, then
+// wrapping around through the rest of the file — vim's "search wraps"
+// convention, since the point of "find next" is exhausting every
+// occurrence without hand-navigating cards. The wraparound walk's own
+// bound (len(m.cards) steps, not len(m.cards)-1) deliberately includes
+// coming back around to the current card itself: with exactly one match
+// in the whole file, repeated Ctrl+N cycles back onto that same match
+// rather than silently doing nothing. A no-op with no active search, an
+// uncompilable one (can't happen once committed, but defensive), or an
+// empty deck.
+func (m *model) jumpToMatch(delta int) {
+	if m.activeSearch == "" || len(m.cards) == 0 {
+		return
+	}
+	re, ok := searchRegexp(m.activeSearch)
+	if !ok {
+		return
+	}
+	from := m.liveCursorPos()
+	if delta > 0 {
+		if matches := bodyMatches(re, m.cardBody(m.cursor)); len(matches) > 0 {
+			if span, ok := nextMatchFrom(matches, from+1); ok {
+				m.setJumpTarget(m.cursor, span[0])
+				return
+			}
+		}
+		for i := 1; i <= len(m.cards); i++ {
+			idx := (m.cursor + i) % len(m.cards)
+			if matches := bodyMatches(re, m.cardBody(idx)); len(matches) > 0 {
+				m.cursor = idx
+				m.setJumpTarget(idx, matches[0][0])
+				return
+			}
+		}
+		return
+	}
+	if matches := bodyMatches(re, m.cardBody(m.cursor)); len(matches) > 0 {
+		if span, ok := prevMatchBefore(matches, from); ok {
+			m.setJumpTarget(m.cursor, span[0])
+			return
+		}
+	}
+	for i := 1; i <= len(m.cards); i++ {
+		idx := (m.cursor - i + len(m.cards)) % len(m.cards)
+		if matches := bodyMatches(re, m.cardBody(idx)); len(matches) > 0 {
+			m.cursor = idx
+			m.setJumpTarget(idx, matches[len(matches)-1][0])
+			return
+		}
+	}
+}
+
 // snapCursorToFiltered keeps m.cursor inside the current filtered set
 // whenever the query changes: it stays put if still a match, otherwise
 // jumps to the first match. A no-op with zero matches — m.cursor stays

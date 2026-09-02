@@ -204,14 +204,28 @@ type model struct {
 	query           string
 	preSearchCursor int
 
-	// gotoLineCursor/gotoLineCard (see goto.go's goToLine) are the rune
-	// offset within a card's body the cursor should open at, and which
-	// card that applies to — editView only honors gotoLineCursor when
-	// gotoLineCard == cursor, so every other edit-mode-entry/transition
-	// path (enterEditMsg, insertMsg, jumpCard, Esc) clears gotoLineCursor
-	// to nil, or a later plain Enter reopening the same card would
-	// incorrectly reapply a stale line target instead of the normal
-	// default cursor position.
+	// activeSearch is the last *committed* search pattern (m.query at the
+	// moment Enter confirmed it), kept around after m.searching goes
+	// false so Ctrl+N/Ctrl+P (see jumpToMatch) keep working while editing
+	// — matching Vim's "n/N reuse the last search" convention. Left
+	// untouched by Esc-cancelling an in-progress retype; only a new
+	// committed search replaces it.
+	activeSearch string
+
+	// jumpGen forces editView's TextArea to remount on a same-card cursor
+	// jump (search's Ctrl+N/Ctrl+P landing on another match in the card
+	// already open) — see setJumpTarget's doc comment for why a plain
+	// InitialCursor change isn't enough on its own.
+	jumpGen int
+
+	// gotoLineCursor/gotoLineCard (see goto.go's goToLine and search.go's
+	// setJumpTarget) are the rune offset within a card's body the cursor
+	// should open at, and which card that applies to — editView only
+	// honors gotoLineCursor when gotoLineCard == cursor, so every other
+	// edit-mode-entry/transition path (enterEditMsg, insertMsg, jumpCard,
+	// Esc) clears gotoLineCursor to nil, or a later plain Enter reopening
+	// the same card would incorrectly reapply a stale line target instead
+	// of the normal default cursor position.
 	gotoLineCursor *int
 	gotoLineCard   int
 
@@ -605,8 +619,21 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 	case commitSearchMsg:
 		m.searching = false
-		if len(m.filteredIndices()) > 0 {
-			m.editing = true
+		if len(m.filteredIndices()) == 0 {
+			break
+		}
+		m.editing = true
+		m.activeSearch = m.query
+		m.gotoLineCursor = nil // see setJumpTarget's fallback below
+		if re, ok := searchRegexp(m.query); ok {
+			if matches := bodyMatches(re, m.cardBody(m.cursor)); len(matches) > 0 {
+				// A body match exists: land the cursor on it rather than
+				// the TextArea's own default (end of Value) — e.g. a
+				// title-only match (no body hit) falls through with
+				// gotoLineCursor left nil above, same as before this
+				// feature existed.
+				m.setJumpTarget(m.cursor, matches[0][0])
+			}
 		}
 
 	case saveDoneMsg:
@@ -681,6 +708,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			}
 			if v.Mod&input.ModCtrl != 0 && v.Key == input.KeyUp {
 				m.jumpCard(-1)
+				return m, nil
+			}
+			// Ctrl+N/Ctrl+P jump to the next/previous occurrence of the
+			// active search (see search.go's jumpToMatch) — distinct from
+			// Ctrl+Up/Down's cross-card jump above, so the two don't
+			// collide: this can move within the same card, that never
+			// does.
+			if v.Mod&input.ModCtrl != 0 && v.Rune == 'n' {
+				m.jumpToMatch(1)
+				return m, nil
+			}
+			if v.Mod&input.ModCtrl != 0 && v.Rune == 'p' {
+				m.jumpToMatch(-1)
 				return m, nil
 			}
 			return m, nil // never fall through to the 'q' check below:
@@ -818,6 +858,13 @@ func pluralS(n int) string {
 	return "es"
 }
 
+// editKey is editView's TextArea Key — see the .Key call's own comment
+// for why both fields are needed.
+type editKey struct {
+	span [2]int
+	gen  int
+}
+
 func (m *model) editView() tui.Node {
 	theme := m.theme
 	card := m.cards[m.cursor]
@@ -869,7 +916,7 @@ func (m *model) editView() tui.Node {
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
-	}).Key(card.Span)
+	}).Key(editKey{card.Span, m.jumpGen})
 	// Keyed by the card's own Span, not m.cursor — TextArea's Value is
 	// only applied at mount (tui's reconciler otherwise matches by tree
 	// position alone, per docs/DESIGN.md §3.1, and this Node's tree
@@ -884,7 +931,12 @@ func (m *model) editView() tui.Node {
 	// into m.cursor's old slot is new content at the same index. Span is
 	// unique per currently-live card (the coverage invariant guarantees
 	// no two cards overlap), so it changes exactly when the shown card
-	// does, covering that case too.
+	// does, covering that case too. jumpGen is folded in on top of Span
+	// for the one case Span alone can't distinguish: search's Ctrl+N/
+	// Ctrl+P landing on a second match *within* the same card (see
+	// setJumpTarget) — Span is unchanged there, so without jumpGen the
+	// existing widget instance would be reused and never see the new
+	// InitialCursor at all.
 	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^s: save   ^c: quit", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 

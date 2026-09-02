@@ -43,8 +43,7 @@ func (m *model) goToLine(n int) {
 	body := m.cardBody(idx)
 	rel := min(max(offset-m.cards[idx].Span[0], 0), len(body))
 	runeOffset := utf8.RuneCountInString(body[:rel])
-	m.gotoLineCursor = &runeOffset
-	m.gotoLineCard = idx
+	m.setJumpTarget(idx, runeOffset)
 }
 
 // lineOffset returns line n's (1-based) starting byte offset in src,
