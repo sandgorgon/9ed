@@ -75,6 +75,21 @@
     render with correct spacing, Ctrl+S, and a fresh reopen showing
     exactly the saved state, with the `.9an` file's on-disk content
     checked directly.
+- Investigated jump/return polish (Ctrl+↑/↓ cross-card jump in Edit
+  mode, kept in scope from the annotations design pass but deprioritized
+  behind it) and found the "know what's worth jumping to" half is
+  already substantially covered by the new reference badges above. The
+  remaining half — restoring cursor position across a jump-away-and-
+  back — is blocked on a missing `tui` capability, not a 9ed design
+  choice: `TextAreaOptions.InitialCursor` (M12) is write-only, and
+  nothing in `TextArea`'s API lets a caller read the current cursor
+  position back out to persist it across the remount `jumpCard`
+  triggers. Wrote up
+  `upstream-specs/tui-textarea-cursor-readback.md` proposing an
+  `OnCursorChange` callback or an exported `CursorOffset()` accessor —
+  the read-side counterpart of the gap
+  `tui-cursor-offset-and-numeric-gutter.md` already closed for the
+  write side — not yet submitted to the `tui` repo.
 - Bumped `9sh` v0.3.1 → v0.4.0. Caught and fixed a real gap it exposed
   in `KyuSegmenter`: `v0.4.0` added three kyu AST node kinds
   (`WhileExpr`/`BreakExpr`/`ContinueExpr` for the new `while`/`break`/
