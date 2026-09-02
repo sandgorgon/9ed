@@ -29,28 +29,28 @@ func TestKyuSegmenter(t *testing.T) {
 		{
 			name: "single define",
 			src:  "x := 5\n",
-			want: []Card{{Kind: "define", Title: "x := 5"}},
+			want: []Card{{Kind: "define", Title: "x := 5", Name: "x"}},
 		},
 		{
 			name: "leading comment becomes a preamble card",
 			src:  "# a header comment\n\nx := 5\n",
 			want: []Card{
 				{Kind: "preamble", Title: "# a header comment"},
-				{Kind: "define", Title: "x := 5"},
+				{Kind: "define", Title: "x := 5", Name: "x"},
 			},
 		},
 		{
-			name: "define then field assign",
+			name: "define then field assign — assign has no Name (mutates, doesn't define)",
 			src:  "x := 0\n\njob.ctl = \"stop\"\n",
 			want: []Card{
-				{Kind: "define", Title: "x := 0"},
+				{Kind: "define", Title: "x := 0", Name: "x"},
 				{Kind: "assign", Title: "job.ctl = \"stop\""},
 			},
 		},
 		{
 			name: "extra whitespace before := doesn't affect the identifier's start",
 			src:  "x   :=   5\n",
-			want: []Card{{Kind: "define", Title: "x   :=   5"}},
+			want: []Card{{Kind: "define", Title: "x   :=   5", Name: "x"}},
 		},
 		{
 			name: "bind statement",
@@ -71,8 +71,8 @@ func TestKyuSegmenter(t *testing.T) {
 			name: "three statements in order",
 			src:  "a := 1\n\nb := a + 1\n\nbind /x, /y\n",
 			want: []Card{
-				{Kind: "define", Title: "a := 1"},
-				{Kind: "define", Title: "b := a + 1"},
+				{Kind: "define", Title: "a := 1", Name: "a"},
+				{Kind: "define", Title: "b := a + 1", Name: "b"},
 				{Kind: "bind", Title: "bind /x, /y"},
 			},
 		},
@@ -88,9 +88,9 @@ func TestKyuSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})

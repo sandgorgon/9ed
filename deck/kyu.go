@@ -44,12 +44,22 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 		spanStart int
 		title     string
 		kind      string
+		name      string
 	}
 	stmts := make([]stmt, 0, len(prog.Stmts))
 	for _, s := range prog.Stmts {
 		tok, kind := kyuStmtTok(s)
 		start := kyuOffset(src, lineStarts, tok.Line, tok.Col)
-		stmts = append(stmts, stmt{spanStart: start, title: firstLine(src[start:]), kind: kind})
+		// Only "define" gets a Name: it's the one statement kind that
+		// actually introduces a new identifier. "assign" mutates an
+		// existing one (and its Target can be an arbitrary FieldAccess
+		// chain, not a single name); "bind" and "expr" don't define
+		// anything at all — see Card.Name.
+		name := ""
+		if d, ok := s.(*kast.DefineStmt); ok {
+			name = d.Name
+		}
+		stmts = append(stmts, stmt{spanStart: start, title: firstLine(src[start:]), kind: kind, name: name})
 	}
 
 	var cards []Card
@@ -65,7 +75,7 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 		if i+1 < len(stmts) {
 			end = stmts[i+1].spanStart
 		}
-		cards = append(cards, Card{Title: s.title, Span: [2]int{s.spanStart, end}, Kind: s.kind})
+		cards = append(cards, Card{Title: s.title, Span: [2]int{s.spanStart, end}, Kind: s.kind, Name: s.name})
 	}
 	return cards
 }
