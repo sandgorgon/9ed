@@ -13,17 +13,20 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.1.1`): M0–M12 implemented — deck segmentation for all six
-target languages (Markdown, Go, Bash, C/C++, Haskell, `kyu`, plus a
-plain-text fallback for anything else), Nav/Edit mode shell with `o`/`O`
-card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump navigation, a
-Nav-mode typeahead filter, precise go-to-line, line numbers, atomic
-save, a runtime light/dark theme toggle (`t`), a 9P server surface for a
-running buffer with a writable `/cards/<n>/body`, and namespace-aware
-open/save (see [Namespace-aware file I/O](#namespace-aware-file-io)
-below). `9auth` is deliberately not integrated directly; see
-[`upstream-specs/`](upstream-specs/) for gaps this project has filed
-against its own dependencies along the way.
+Status (`v0.1.2` plus unreleased work): M0–M12 implemented — deck
+segmentation for all six target languages (Markdown, Go, Bash, C/C++,
+Haskell, `kyu`, plus a plain-text fallback for anything else), Nav/Edit
+mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump
+navigation, a Nav-mode typeahead filter, precise go-to-line, line
+numbers, atomic save, a runtime light/dark theme toggle (`t`), a 9P
+server surface for a running buffer with a writable `/cards/<n>/body`,
+namespace-aware open/save (see
+[Namespace-aware file I/O](#namespace-aware-file-io) below), and card
+annotations — markdown notes plus `todo`/`needs-review` badges (see
+[Card annotations](#card-annotations) below). `9auth` is deliberately
+not integrated directly; see [`upstream-specs/`](upstream-specs/) for
+gaps this project has filed against its own dependencies along the
+way.
 
 ## Install
 
@@ -84,6 +87,30 @@ requirement. Save reproduces the same crash-safe temp-file-then-rename
 trick the plain OS path uses, just carried over 9P (`cmd/9ed/nsopen.go`)
 instead of a direct syscall.
 
+## Card annotations
+
+Cards can carry two kinds of annotation, stored in a per-file sidecar
+next to the source (`foo.go` → `foo.go.9an`) rather than inside the
+source itself:
+
+- **A markdown note** — press `n` from Nav mode to open the current
+  card's note full-screen (Esc returns to Nav), the same shape as
+  editing the card's own body.
+- **Two fixed badges**, `todo` and `needs-review` — press `f`/`r` from
+  Nav mode to toggle them directly, no picker UI.
+
+Nav mode's list line also shows two badges 9ed computes on its own:
+`✎` when a card has a note, and `↩ N` when N other cards mention that
+card's name — a lexical, not semantic, cross-reference scan (only
+`GoSegmenter` has a real parser; the others use structural heuristics),
+so it's a hint, not a guarantee.
+
+The `.9an` sidecar is itself plain markdown — a `# kind: title` heading
+per annotated card, an optional `flags: ...` line, then the note body —
+readable and diffable on its own, and meant to be committed alongside
+the source, not personal scratch. Ctrl+S writes it alongside the
+source, but only once something in it has actually changed.
+
 ## Why no `9auth`
 
 9ed's own 9P server (`cmd/9ed/namespace.go`) is deliberately
@@ -103,7 +130,7 @@ for the (now-resolved, as of `9sh` v0.3.1) gap this uncovered.
 | Module | Version |
 |---|---|
 | `github.com/sandgorgon/9p` | v0.7.1 |
-| `github.com/sandgorgon/9sh` | v0.3.1 |
+| `github.com/sandgorgon/9sh` | v0.4.0 |
 | `github.com/sandgorgon/tui` | v0.2.0 |
 
 `9vcs` and `9auth` are siblings in the same Plan-9-flavored family but are

@@ -2,6 +2,91 @@
 
 ## Unreleased
 
+- Card annotations: markdown notes and two user-authored badges
+  (`todo`/`needs-review`), the sharpest gap identified in a feature
+  evaluation pass against `v0.1.2` — "no cross-card visual context"
+  resolved by metadata (notes/badges), not layout, after checking the
+  actual model first rather than defaulting to a conventional
+  split-pane fix: 9ed already treats "leave Nav, edit one thing
+  full-screen, Esc to return" as the one way to focus on something,
+  and the whole feature stays inside that shape rather than fighting
+  it. Built bottom-up, each piece committed and tmux-verified
+  separately:
+  - `deck.Card` gains `Name` — the single identifier a card
+    unambiguously defines (a func's name, a single-spec type/var/
+    const's name, a Markdown heading's own phrase-length text), empty
+    when a card defines none or more than one (an import block, a
+    grouped `var (...)` block) — populated in all six segmenters.
+  - `deck.References(src, cards) [][]int` — a lexical (not semantic)
+    whole-word/whole-phrase scan: for each card with a `Name`, which
+    other cards mention it. Only `GoSegmenter` has a real parser, so a
+    uniform semantic cross-reference mechanism across all six
+    segmenters was never on the table. Two cards sharing the same
+    `Name` are never counted as referencing each other — each one's
+    own declaration line contains its own name, which is also the
+    other's, producing a match with no real reference behind it;
+    caught by this feature's own tests before it shipped, not assumed
+    correct going in.
+  - New `notes` package: parses/writes a `.9an` sidecar per source
+    file (`foo.go` → `foo.go.9an`, *appended*, never replacing the
+    extension — two source files sharing a basename with different
+    extensions must not collide). Format is deliberately plain
+    markdown — a `# kind: title` heading per annotated card, an
+    optional `flags: a, b` line right under it, then the note body —
+    so the sidecar file is itself valid markdown, meant to be
+    committed alongside the source, not personal scratch. Keyed by
+    `(Kind, Title)`, not card index, since 9ed already supports
+    inserting a card mid-file (`o`/`O`), which shifts every index
+    after it. Flags deliberately live on their own line rather than
+    packed into the heading (`# func: foo() []int { [todo]`) — a Go
+    title routinely contains `[`/`]` itself (a slice return type),
+    which would make bracket-delimited flags ambiguous to parse back
+    out.
+  - `cmd/9ed` wiring: `run()` loads a file's `.9an` sidecar
+    best-effort (same fallback dial `nsReadFile` already gives the
+    source read) and computes `deck.References` at startup and again
+    after every successful Save — never on every keystroke, matching
+    `References`' own load/save-time design. Nav mode's list line
+    gained badges: `✎` (has a note), `↩ N` (referenced by N other
+    cards), `⚑`/`⚠` (`todo`/`needs-review`, user-toggled) — flags
+    render first (a deliberate signal), then the two passive
+    system-derived ones. The existing edited-but-unsaved indicator is
+    now `●` (was `*`), and a note edit or flag toggle sets it too, the
+    same as a body edit — one dirty concept, not two.
+  - New **Note mode** (`n` from Nav) edits the current card's note
+    full-screen — reusing `editView`'s exact shape (same `TextArea`
+    widget, Esc back to Nav) rather than a new UI paradigm, since a
+    note is conceptually no different from a card's own body: one
+    thing, full focus. No highlighting or line-number gutter — both
+    are about correlating with source structure a note has none of.
+    `f`/`r` toggle the two flags directly from Nav, no picker UI — the
+    flag vocabulary is small and fixed, and 9ed has no popup/modal
+    concept anywhere to have needed one. Ctrl+S now also writes the
+    `.9an` sidecar, but only when a note or flag actually changed this
+    session — a file that's never had one annotated gets no `.9an`
+    written for it. Leaving Note mode (or toggling a flag off) with
+    neither a note body nor any flag left drops the sidecar entry
+    entirely rather than persisting an empty header. A freshly
+    inserted, not-yet-saved card can't take a note or a flag at all —
+    its placeholder `(Kind, Title)` is about to change on the next
+    Save and would immediately orphan either one.
+  - Verified live in tmux throughout, including the full round trip:
+    enter Note mode, type, Esc, toggle both flags, see all badges
+    render with correct spacing, Ctrl+S, and a fresh reopen showing
+    exactly the saved state, with the `.9an` file's on-disk content
+    checked directly.
+- Bumped `9sh` v0.3.1 → v0.4.0. Caught and fixed a real gap it exposed
+  in `KyuSegmenter`: `v0.4.0` added three kyu AST node kinds
+  (`WhileExpr`/`BreakExpr`/`ContinueExpr` for the new `while`/`break`/
+  `continue`, `PassthroughStmt` for `$cmd`, `UnbindStmt` for `unbind`)
+  that `kyuStmtTok`/`kyuExprTok`'s type switches weren't exhaustive
+  over — Go doesn't warn on a non-exhaustive type switch, so each
+  unhandled node silently fell through to a zero-value token,
+  collapsing that card's `Span` to byte offset 0 rather than erroring.
+  Would have shipped a quiet segmentation-corruption bug for any kyu
+  file using the new syntax; fixed in the same commit, before it ever
+  reached a release.
+
 ## 0.1.2 - 2026-08-31
 
 - `cmd/9ed`: added `-h`/`--help`, printing usage plus the full Nav-mode
