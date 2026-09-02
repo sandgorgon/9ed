@@ -204,6 +204,31 @@ type model struct {
 	query           string
 	preSearchCursor int
 
+	// enteringReplacement/replaceWith are the second field on the '/'
+	// search line (see search.go's toggleReplaceFieldMsg, Ctrl+R):
+	// enteringReplacement selects which field query characters go to,
+	// replaceWith is what's been typed into the replacement field so
+	// far. Both reset to false/"" on every startSearchMsg. A non-empty
+	// replaceWith at commit time (see commitSearchMsg) starts the
+	// confirm-replace walk (replace.go) instead of a plain search jump.
+	enteringReplacement bool
+	replaceWith         string
+
+	// replacing/replaceDone and the replaceXxx fields below are
+	// replace.go's confirm-each-match walk state, active between
+	// startReplace and the flow ending (every match processed, or
+	// aborted with 'q'/Esc) — see replace.go's own doc comment for the
+	// full design. Mutually exclusive with editing/noteEditing/searching,
+	// like they are with each other.
+	replacing         bool
+	replaceDone       bool
+	replaceCandidates []int  // card indices with >=1 body match, fixed at startReplace
+	replaceCandPos    int    // index into replaceCandidates of the card currently being walked
+	replaceFrom       int    // rune offset in that card's body to resume searching from
+	replacePending    [2]int // the current proposed match, valid whenever replacing && !replaceDone
+	replaceCount      int    // accepted so far, for the closing summary
+	replaceSkipped    int    // skipped so far, for the closing summary
+
 	// activeSearch is the last *committed* search pattern (m.query at the
 	// moment Enter confirmed it), kept around after m.searching goes
 	// false so Ctrl+N/Ctrl+P (see jumpToMatch) keep working while editing
@@ -594,6 +619,8 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.searching = true
 		m.query = ""
 		m.preSearchCursor = m.cursor
+		m.enteringReplacement = false
+		m.replaceWith = ""
 
 	case searchInputMsg:
 		m.query += string(v.r)
@@ -613,11 +640,27 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			m.cursor = f[next]
 		}
 
+	case toggleReplaceFieldMsg:
+		m.enteringReplacement = !m.enteringReplacement
+
+	case replaceInputMsg:
+		m.replaceWith += string(v.r)
+
+	case replaceBackspaceMsg:
+		if m.replaceWith != "" {
+			r := []rune(m.replaceWith)
+			m.replaceWith = string(r[:len(r)-1])
+		}
+
 	case cancelSearchMsg:
 		m.searching = false
 		m.cursor = m.preSearchCursor
 
 	case commitSearchMsg:
+		if m.replaceWith != "" {
+			m.startReplace()
+			break
+		}
 		m.searching = false
 		if len(m.filteredIndices()) == 0 {
 			break
@@ -661,6 +704,28 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 's' {
 			m.cancelPendingNav()
 			return m, m.saveCmd()
+		}
+		if m.replacing {
+			// No focused widget renders here (see replaceView's doc
+			// comment on why), so every key reaches only this branch —
+			// unlike editing/noteEditing, there's no "everything else
+			// must reach the TextArea" fallthrough to preserve.
+			if m.replaceDone {
+				m.replacing = false
+				m.replaceDone = false
+				return m, nil
+			}
+			switch {
+			case v.Rune == 'y':
+				m.acceptReplace()
+			case v.Rune == 'n':
+				m.skipReplace()
+			case v.Rune == 'a':
+				m.replaceAllRemaining()
+			case v.Rune == 'q', v.Key == input.KeyEsc && v.Mod == 0:
+				m.replaceDone = true
+			}
+			return m, nil
 		}
 		if m.noteEditing {
 			// Esc is the only way out of note-editing (entry is
@@ -751,6 +816,8 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 func (m *model) View() tui.Node {
 	switch {
+	case m.replacing:
+		return m.replaceView()
 	case m.noteEditing:
 		return m.noteView()
 	case m.editing:
@@ -786,9 +853,9 @@ func (m *model) navView() tui.Node {
 
 	var help tui.Node
 	if m.searching {
-		help = tui.Text(fmt.Sprintf("/%s  (%d match%s)  —  enter: go   esc: cancel", m.query, len(indices), pluralS(len(indices))), m.helpStyle())
+		help = tui.Text(m.searchHelpLine(indices), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   n: note   f/r: flag   o/O: insert   ^s: save   t: theme   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   o/O: insert   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 

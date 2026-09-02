@@ -13,6 +13,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 
@@ -27,22 +28,43 @@ type searchMoveMsg struct{ delta int }
 type cancelSearchMsg struct{}
 type commitSearchMsg struct{}
 
+// toggleReplaceFieldMsg (Ctrl+R) switches typing focus between the
+// search pattern and the replacement text on the same '/' line — see
+// searchKeyEvent's own comment for why this can't be Tab.
+type toggleReplaceFieldMsg struct{}
+type replaceInputMsg struct{ r rune }
+type replaceBackspaceMsg struct{}
+
 // searchKeyEvent is listEvent's entire key-handling while
 // model.searching is true. Movement uses the plain arrow keys, not j/k,
-// since letters are query text now.
+// since letters are query text now. Ctrl+R, not Tab, switches between
+// the pattern and replacement fields: List (always focused here) isn't
+// a tui.RawKeyClaimer, so a bare Tab is claimed by the App itself to
+// move focus among focusable widgets (tui/app.go's handleInput) and
+// never reaches Update at all — confirmed by reading that dispatch path
+// directly rather than assuming Tab would just work here the way it
+// does inside a claimed widget like TextArea.
 func (m *model) searchKeyEvent(ke input.KeyEvent) tui.Msg {
 	switch {
 	case ke.Key == input.KeyEsc && ke.Mod == 0:
 		return cancelSearchMsg{}
 	case ke.Key == input.KeyEnter:
 		return commitSearchMsg{}
+	case ke.Mod&input.ModCtrl != 0 && ke.Rune == 'r':
+		return toggleReplaceFieldMsg{}
 	case ke.Key == input.KeyBackspace:
+		if m.enteringReplacement {
+			return replaceBackspaceMsg{}
+		}
 		return searchBackspaceMsg{}
 	case ke.Key == input.KeyUp:
 		return searchMoveMsg{delta: -1}
 	case ke.Key == input.KeyDown:
 		return searchMoveMsg{delta: 1}
 	case ke.Key == input.KeyNone && ke.Rune != 0 && ke.Mod&(input.ModCtrl|input.ModAlt) == 0:
+		if m.enteringReplacement {
+			return replaceInputMsg{r: ke.Rune}
+		}
 		return searchInputMsg{r: ke.Rune}
 	}
 	return nil
@@ -217,6 +239,35 @@ func (m *model) jumpToMatch(delta int) {
 			return
 		}
 	}
+}
+
+// searchHelpLine renders the '/' status line: both fields (pattern and
+// replacement), with the one currently receiving typed characters
+// bracketed so Ctrl+R's effect is visible; a match count, or "invalid
+// pattern" instead of "0 matches" when the regexp doesn't compile yet
+// (still being typed) — distinguishing "no matches" from "not a valid
+// pattern yet" was flagged as worth keeping in the design discussion,
+// since the two look identical to filteredIndices (both return zero
+// results) but mean different things to the person typing. Enter's
+// label switches between "go" and "replace" depending on whether a
+// replacement has been typed at all.
+func (m *model) searchHelpLine(indices []int) string {
+	pattern, replacement := m.query, m.replaceWith
+	if m.enteringReplacement {
+		replacement = "[" + replacement + "]"
+	} else {
+		pattern = "[" + pattern + "]"
+	}
+	status := fmt.Sprintf("%d match%s", len(indices), pluralS(len(indices)))
+	if _, ok := searchRegexp(m.query); !ok {
+		status = "invalid pattern"
+	}
+	action := "go"
+	if m.replaceWith != "" {
+		action = "replace"
+	}
+	return fmt.Sprintf("/%s  →  %s  (%s)  —  enter: %s   ^r: switch field   esc: cancel",
+		pattern, replacement, status, action)
 }
 
 // snapCursorToFiltered keeps m.cursor inside the current filtered set

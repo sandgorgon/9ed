@@ -74,17 +74,25 @@ func styleFor(tok token.Token, theme style.Theme) (cell.Style, bool) {
 	}
 }
 
+// searchMatchStyle is the shared "this is a search match" look — an
+// inverted Accent/Background pair, the same "reversed" convention a
+// terminal find bar uses — used both for editView's Highlights (via
+// searchHighlights) and replaceView's inline match display, so a match
+// looks the same whether you're just reading it or being asked to
+// replace it.
+func searchMatchStyle(theme style.Theme) cell.Style {
+	return cell.Style{Fg: theme.Background, Bg: theme.Accent}
+}
+
 // searchHighlights returns one StyleSpan per occurrence of re in body,
-// styled as a search-match highlight (an inverted Accent/Background
-// pair, the same "reversed" convention a terminal find bar uses) — see
-// mergeHighlights for combining these with goHighlights on the same
-// TextArea.
+// styled with searchMatchStyle — see mergeHighlights for combining
+// these with goHighlights on the same TextArea.
 func searchHighlights(re *regexp.Regexp, body string, theme style.Theme) []widget.StyleSpan {
 	matches := bodyMatches(re, body)
 	if len(matches) == 0 {
 		return nil
 	}
-	st := cell.Style{Fg: theme.Background, Bg: theme.Accent}
+	st := searchMatchStyle(theme)
 	spans := make([]widget.StyleSpan, len(matches))
 	for i, sp := range matches {
 		spans[i] = widget.StyleSpan{Start: sp[0], End: sp[1], Style: st}
