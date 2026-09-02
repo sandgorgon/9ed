@@ -189,6 +189,36 @@ func TestSearchLifecycle(t *testing.T) {
 	})
 }
 
+// TestSearchSwallowsGlobalKeys regression-tests a bug caught live in
+// tmux: every keypress reaches Update as a raw input.KeyEvent *and* as
+// whatever Msg the focused List's onEvent produces (tui always delivers
+// both — see TestGoToFirstLast's "gg still completes" test for the same
+// pattern elsewhere). Before this guard existed, typing a query
+// containing 'q' also hit Update's bottom-of-switch "bare 'q' quits"
+// check via the raw-KeyEvent path, and 't' likewise toggled the theme —
+// both fired mid-keystroke while composing a search query.
+func TestSearchSwallowsGlobalKeys(t *testing.T) {
+	t.Run("'q' while searching does not quit", func(t *testing.T) {
+		m := newSearchTestModel()
+		m.searching = true
+		_, cmd := m.Update(input.KeyEvent{Rune: 'q'})
+		if cmd != nil {
+			t.Error("Update returned a non-nil Cmd for 'q' while searching, want nil (no quit)")
+		}
+	})
+
+	t.Run("'t' while searching does not toggle the theme", func(t *testing.T) {
+		m := newSearchTestModel()
+		m.searching = true
+		before := m.theme
+		mm, _ := m.Update(input.KeyEvent{Rune: 't'})
+		m = mm.(*model)
+		if m.theme != before {
+			t.Error("theme changed after 't' while searching, want unchanged")
+		}
+	})
+}
+
 func TestListEventSearchRouting(t *testing.T) {
 	m := &model{}
 	if got := m.listEvent(input.KeyEvent{Rune: '/'}); got != (startSearchMsg{}) {

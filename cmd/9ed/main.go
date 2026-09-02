@@ -686,6 +686,18 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			return m, nil // never fall through to the 'q' check below:
 			// 'q' must be an ordinary character while editing text.
 		}
+		if m.searching {
+			// Every raw KeyEvent is dispatched to Update *and* delivered
+			// to the focused List (tui always does both — see app.go's
+			// handleInput); the List's own onEvent (listEvent/
+			// searchKeyEvent) already turns query characters into
+			// searchInputMsg via that second path. Without this guard, a
+			// query letter that happens to match one of the checks below
+			// fires it too: confirmed live in tmux that searching for a
+			// pattern containing 'q' quit the whole app, and one
+			// containing 't' silently flipped the theme, mid-keystroke.
+			return m, nil
+		}
 		if v.Rune == 't' {
 			m.toggleTheme()
 			return m, nil
