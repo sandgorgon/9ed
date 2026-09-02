@@ -33,9 +33,9 @@ func TestPlainSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})

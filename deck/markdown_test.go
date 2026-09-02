@@ -24,15 +24,15 @@ func TestMarkdownSegmenter(t *testing.T) {
 		{
 			name: "heading at start, no preamble",
 			src:  "# Title\n\nbody text\n",
-			want: []Card{{Kind: "heading", Title: "Title"}},
+			want: []Card{{Kind: "heading", Title: "Title", Name: "Title"}},
 		},
 		{
 			name: "preamble then headings",
 			src:  "intro text\n\n# One\nbody one\n\n## Two\nbody two\n",
 			want: []Card{
 				{Kind: "preamble", Title: "intro text"},
-				{Kind: "heading", Title: "One"},
-				{Kind: "heading", Title: "Two"},
+				{Kind: "heading", Title: "One", Name: "One"},
+				{Kind: "heading", Title: "Two", Name: "Two"},
 			},
 		},
 		{
@@ -43,7 +43,7 @@ func TestMarkdownSegmenter(t *testing.T) {
 		{
 			name: "hash inside fenced code block is not a heading",
 			src:  "# Real Heading\n\n```python\n# not a heading\n```\n\nmore text\n",
-			want: []Card{{Kind: "heading", Title: "Real Heading"}},
+			want: []Card{{Kind: "heading", Title: "Real Heading", Name: "Real Heading"}},
 		},
 		{
 			name: "seven hashes is not a heading",
@@ -55,7 +55,7 @@ func TestMarkdownSegmenter(t *testing.T) {
 			src:  "intro\r\n# Heading\r\nbody\r\n",
 			want: []Card{
 				{Kind: "preamble", Title: "intro"},
-				{Kind: "heading", Title: "Heading"},
+				{Kind: "heading", Title: "Heading", Name: "Heading"},
 			},
 		},
 	}
@@ -70,9 +70,9 @@ func TestMarkdownSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})

@@ -12,5 +12,7 @@ func (PlainSegmenter) Segment(src []byte) []Card {
 	if len(src) == 0 {
 		return nil
 	}
+	// Name stays empty (its zero value): unstructured text has no
+	// identifier for a cross-reference badge to attribute to.
 	return []Card{{Title: firstLine(src), Span: [2]int{0, len(src)}, Kind: "text"}}
 }

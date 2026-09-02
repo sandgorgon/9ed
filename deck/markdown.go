@@ -66,7 +66,15 @@ func (MarkdownSegmenter) Segment(src []byte) []Card {
 		if i+1 < len(headings) {
 			end = headings[i+1].start
 		}
-		cards = append(cards, Card{Title: h.title, Span: [2]int{h.start, end}, Kind: "heading"})
+		// Name = Title: a heading's own text is the closest thing
+		// Markdown has to a defined identifier — prose elsewhere can
+		// refer back to a section by the same words ("see the
+		// Configuration section"), so it's the natural cross-reference
+		// target, phrase-length rather than a single token like the
+		// other segmenters' Names. A bare heading's empty Title yields
+		// an empty Name too, which is already Card.Name's "no name"
+		// value — no special-casing needed.
+		cards = append(cards, Card{Title: h.title, Span: [2]int{h.start, end}, Kind: "heading", Name: h.title})
 	}
 	return cards
 }
