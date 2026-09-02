@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- `cmd/9ed`: `/` now searches card bodies, not just titles, and matches
+  as a case-insensitive regexp instead of a plain substring — the
+  project's own "most conspicuous gap" from the original feature
+  backlog. `Enter` on a body match lands the cursor there (not the
+  default end-of-body position) and highlights every match in the card;
+  `Ctrl+N`/`Ctrl+P` then walk forward/backward across every occurrence in
+  the file, wrapping at the ends. Landing on a *second* match within an
+  already-open card needed a new mechanism — `tui`'s
+  `TextAreaOptions.InitialCursor` is read only once at mount, so a
+  same-card cursor move (unlike a cross-card one, which naturally
+  remounts) needed a manufactured remount via a new `jumpGen` counter
+  folded into the widget's `Key`.
+- `cmd/9ed`: added whole-file find-and-replace. `Ctrl+R` while searching
+  switches to a second field for replacement text; `Enter` with one
+  typed starts a confirm-each-match walk (`y`/`n`/`a`/`q`, Vim's
+  `:s///gc` convention) across every card with a match, rather than a
+  single "replace everything" confirmation — chosen since a replace
+  can't be undone once you leave a card (undo is per-card and
+  ephemeral). The walk re-scans each card's live body on every step
+  rather than caching match offsets, so an in-progress replacement's
+  length change can never invalidate a later match.
+- `cmd/9ed`: fixed a real bug found while starting the above — every
+  keystroke reaches `Update` as a raw `input.KeyEvent` *and* as
+  whatever `Msg` the focused `List`'s `onEvent` converts it to, and
+  Update's bottom-of-switch "bare `t` toggles theme, bare `q` quits"
+  checks had no `m.searching` guard. Typing a query containing `q`
+  quit 9ed outright mid-keystroke; one containing `t` silently flipped
+  the theme. Confirmed live in tmux before and after the fix.
+
 ## 0.2.0 - 2026-09-02
 
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now

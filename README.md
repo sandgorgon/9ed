@@ -13,14 +13,17 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.2.0`): M0–M12 implemented — deck
-segmentation for all six target languages (Markdown, Go, Bash, C/C++,
-Haskell, `kyu`, plus a plain-text fallback for anything else), Nav/Edit
-mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump
-navigation (restoring each card's cursor position across a jump), a
-Nav-mode typeahead filter, precise go-to-line, line
-numbers, atomic save, a runtime light/dark theme toggle (`t`), a 9P
-server surface for a running buffer with a writable `/cards/<n>/body`,
+Status (`v0.2.0`, plus unreleased work on `master`): M0–M12 implemented —
+deck segmentation for all six target languages (Markdown, Go, Bash,
+C/C++, Haskell, `kyu`, plus a plain-text fallback for anything else),
+Nav/Edit mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/
+cross-card-jump navigation (restoring each card's cursor position across
+a jump), full-text search across titles and bodies with regexp,
+jump-to-match/`Ctrl+N`/`Ctrl+P` walking, match highlighting, and
+whole-file confirm-replace (see [Search and
+replace](#search-and-replace) below), precise go-to-line, line numbers,
+atomic save, a runtime light/dark theme toggle (`t`), a 9P server
+surface for a running buffer with a writable `/cards/<n>/body`,
 namespace-aware open/save (see
 [Namespace-aware file I/O](#namespace-aware-file-io) below), and card
 annotations — markdown notes plus `todo`/`needs-review` badges (see
@@ -111,6 +114,26 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Search and replace
+
+`/` from Nav mode searches both a card's title and its body — a plain
+query behaves like a substring search, but it's actually a
+case-insensitive regexp, so real patterns work too. Matching cards are
+listed live as you type; `Enter` opens the current one in Edit mode,
+landing the cursor on its first body match (not the default end-of-body
+position) and highlighting every match in the card. `Ctrl+N`/`Ctrl+P`
+then walk forward/backward through every occurrence in the file,
+wrapping around at the ends.
+
+`Ctrl+R` while searching switches typing to a second field for
+replacement text (not `Tab` — `tui`'s focus-move claims that key before
+it ever reaches 9ed). With a replacement typed, `Enter` starts a
+whole-file confirm-replace walk instead of a plain jump: one match at a
+time, `y` replaces it, `n` skips it, `a` replaces it and every remaining
+match without asking again, `q`/`Esc` stops early — Vim's `:s///gc`
+convention, chosen since a replace can't be undone once you leave a card
+(undo is per-card and doesn't survive a jump).
 
 ## Why no `9auth`
 
