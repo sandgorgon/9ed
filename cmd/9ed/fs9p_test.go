@@ -19,16 +19,16 @@ import (
 // over the actual 9P wire protocol (marshal/unmarshal, walk, open,
 // read), not just calling bufferFS's methods directly in-process,
 // since a real 9P client (kyu, or a future unix-socket-aware 9pc —
-// see sandgorgon/9p#3) is what will actually talk to this. writes may
-// be nil for a test that only exercises reads.
-func startTestServer(t *testing.T, view *bufferView, writes chan<- p9WriteMsg) *client.Client {
+// see sandgorgon/9p#3) is what will actually talk to this. writes/gotos
+// may be nil for a test that only exercises reads.
+func startTestServer(t *testing.T, view *bufferView, writes chan<- p9WriteMsg, gotos chan<- p9GotoMsg) *client.Client {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "test.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &server.Server{FS: &bufferFS{view: view, writes: writes}}
+	srv := &server.Server{FS: &bufferFS{view: view, writes: writes, gotos: gotos}}
 	go srv.Serve(l)
 	t.Cleanup(func() { l.Close() })
 
@@ -41,6 +41,29 @@ func startTestServer(t *testing.T, view *bufferView, writes chan<- p9WriteMsg) *
 		t.Fatal(err)
 	}
 	return c
+}
+
+// runP9GotoConsumer drives gotos the same way main.go's Update
+// (p9GotoMsg case) does at the level fs9p_test.go cares about — ack the
+// request, and forward its line onto received (buffered, so the test
+// can inspect it after gotoFile.Close has already returned and
+// consumed the original request off gotos) — without needing a full
+// tui.App/model event loop. The model-level effect (goToLine actually
+// moving the cursor) is covered separately by TestUpdateP9GotoMsg in
+// goto_test.go, the same split TestFS9PWrite/TestUpdateP9WriteMsg
+// already use. Runs until the test ends (t.Cleanup stops it by closing
+// gotos).
+func runP9GotoConsumer(t *testing.T, gotos chan p9GotoMsg) <-chan int {
+	t.Helper()
+	received := make(chan int, 8)
+	go func() {
+		for req := range gotos {
+			received <- req.line
+			req.result <- nil
+		}
+	}()
+	t.Cleanup(func() { close(gotos) })
+	return received
 }
 
 // runP9WriteConsumer drives writes the same way main.go's Update
@@ -84,7 +107,7 @@ func TestFS9P(t *testing.T) {
 	view := &bufferView{}
 	view.publish("f.go", src, cards, nil)
 
-	c := startTestServer(t, view, nil)
+	c := startTestServer(t, view, nil, nil)
 
 	if got := readFile(t, c, "/cards/1/title"); got != "func F() {}" {
 		t.Errorf("/cards/1/title = %q, want %q", got, "func F() {}")
@@ -130,7 +153,7 @@ func TestFS9PWrite(t *testing.T) {
 
 	writes := make(chan p9WriteMsg)
 	runP9WriteConsumer(t, view, src, cards, writes)
-	c := startTestServer(t, view, writes)
+	c := startTestServer(t, view, writes, nil)
 
 	f, err := c.Open("/cards/1/body", p9.OWRITE)
 	if err != nil {
@@ -150,6 +173,85 @@ func TestFS9PWrite(t *testing.T) {
 	if got := readFile(t, c, "/tag"); got != "f.go 2-cards unsaved\n" {
 		t.Errorf("/tag after write = %q, want a dirty marker", got)
 	}
+}
+
+// TestFS9PGoto exercises /goto (item 3, plumbing) end-to-end over the
+// real 9P wire protocol: a bare line number always commits; a
+// "path:line" naming the file already open commits too; one naming a
+// *different* file is rejected with a clear error rather than silently
+// ignored (confirmed with the user — see plumb.go's package comment)
+// and never reaches the consumer at all.
+func TestFS9PGoto(t *testing.T) {
+	src := []byte("package foo\n\nfunc F() {}\n")
+	cards := deck.GoSegmenter{}.Segment(src)
+	view := &bufferView{}
+	view.publish("f.go", src, cards, nil)
+
+	gotos := make(chan p9GotoMsg, 1)
+	received := runP9GotoConsumer(t, gotos)
+	c := startTestServer(t, view, nil, gotos)
+
+	writeGoto := func(content string) error {
+		f, err := c.Open("/goto", p9.OWRITE)
+		if err != nil {
+			t.Fatalf("open /goto for write: %v", err)
+		}
+		if _, err := f.Write([]byte(content)); err != nil {
+			t.Fatalf("write %q: %v", content, err)
+		}
+		return f.Close()
+	}
+
+	t.Run("a bare line number commits", func(t *testing.T) {
+		if err := writeGoto("3"); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+		select {
+		case line := <-received:
+			if line != 3 {
+				t.Errorf("line = %d, want 3", line)
+			}
+		default:
+			t.Error("consumer never received the request")
+		}
+	})
+
+	t.Run("path:line naming the open file commits", func(t *testing.T) {
+		if err := writeGoto("f.go:3"); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+		select {
+		case line := <-received:
+			if line != 3 {
+				t.Errorf("line = %d, want 3", line)
+			}
+		default:
+			t.Error("consumer never received the request")
+		}
+	})
+
+	t.Run("path:line naming a different file is rejected, not ignored", func(t *testing.T) {
+		if err := writeGoto("other.go:3"); err == nil {
+			t.Error("Close() = nil, want an error (mismatched file)")
+		}
+		select {
+		case line := <-received:
+			t.Errorf("consumer received line %d, want none — mismatched file should be rejected before it's ever sent", line)
+		default:
+		}
+	})
+
+	t.Run("garbage content is rejected", func(t *testing.T) {
+		if err := writeGoto("not a line or path:line"); err == nil {
+			t.Error("Close() = nil, want a parse error")
+		}
+	})
+
+	t.Run("reading /goto fails — it's write-only", func(t *testing.T) {
+		if _, err := c.Open("/goto", p9.OREAD); err == nil {
+			t.Error("Open(OREAD) = nil, want an error")
+		}
+	})
 }
 
 // TestBufferViewConcurrentAccess exercises publish/snapshot from two

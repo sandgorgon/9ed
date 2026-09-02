@@ -9,7 +9,7 @@ import (
 
 func TestReassembleRoundTrip(t *testing.T) {
 	src := []byte("package foo\n\nvar A = 1\n\nvar B = 2\n")
-	m := newModel("f.go", src, deck.GoSegmenter{}, deck.GoSegmenter{}.Segment(src), nil)
+	m := newModel("f.go", src, deck.GoSegmenter{}, deck.GoSegmenter{}.Segment(src), nil, nil)
 
 	if got := string(m.reassemble()); got != string(src) {
 		t.Fatalf("unedited reassemble = %q, want %q", got, src)
@@ -25,7 +25,7 @@ func TestReassembleRoundTrip(t *testing.T) {
 func TestReassembleInsertsMissingNewline(t *testing.T) {
 	src := []byte("package foo\n\nvar A = 1\n\nvar B = 2\n")
 	cards := deck.GoSegmenter{}.Segment(src)
-	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil)
+	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil, nil)
 
 	// Find the "var A" card and edit it to drop its trailing newline —
 	// exactly what typing into TextArea without pressing Enter produces.
@@ -68,7 +68,7 @@ func TestReassembleInsertsMissingNewline(t *testing.T) {
 func TestReassembleInsertedCard(t *testing.T) {
 	src := []byte("package foo\n\nfunc A() {}\n\nfunc B() {}\n")
 	cards := deck.GoSegmenter{}.Segment(src) // [0]=preamble, [1]=A, [2]=B
-	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil)
+	m := newModel("f.go", src, deck.GoSegmenter{}, cards, nil, nil)
 
 	m.insertCard(2, cards[1].Span[1]) // between A and B, matching insertBelow on A
 	m.setEdited(2, "func New() {}\n")

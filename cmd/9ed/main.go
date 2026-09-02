@@ -115,6 +115,8 @@ func run() int {
 	// argument can't itself depend on a namespace dial without adding one
 	// unconditionally to every plain single-file invocation too.
 	var path string
+	var targetLine int
+	var hasLine bool
 	switch {
 	case len(os.Args) == 1:
 		chosen, ok := runBrowse(".")
@@ -123,13 +125,21 @@ func run() int {
 		}
 		path = chosen
 	default:
-		path = os.Args[1]
+		// "foo.go:42" (see plumb.go's parseFileLine, item 3) opens at a
+		// specific line, the same convention grep/compilers use for
+		// their own output — pasting a build error's own "file:line" as
+		// the argument Just Works, no separate flag needed.
+		path, targetLine, hasLine = parseFileLine(os.Args[1])
 		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+			// A directory can't have a meaningful line target — an
+			// argument shaped like "somedir:42" is a nonsensical
+			// combination, not worth a dedicated error; targetLine is
+			// simply dropped along with the rest of the parse.
 			chosen, ok := runBrowse(path)
 			if !ok {
 				return 0
 			}
-			path = chosen
+			path, hasLine = chosen, false
 		}
 	}
 
@@ -147,7 +157,8 @@ func run() int {
 	seg := segmenterFor(path)
 
 	writes := make(chan p9WriteMsg)
-	m := newModel(path, src, seg, seg.Segment(src), writes)
+	gotos := make(chan p9GotoMsg)
+	m := newModel(path, src, seg, seg.Segment(src), writes, gotos)
 	// The .9an sidecar is optional and best-effort — no such file (the
 	// overwhelmingly common case today, since nothing writes one yet)
 	// or any read failure just means no notes for this file, not an
@@ -155,12 +166,15 @@ func run() int {
 	if sidecar, err := readFileNS(notes.SidecarPath(path)); err == nil {
 		m.notesFile = notes.Parse(sidecar)
 	}
+	if hasLine {
+		m.goToLine(targetLine)
+	}
 	m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	// The 9P surface is best-effort, not required to edit: a runtime
 	// dir we can't create/listen on (e.g. an unwritable $XDG_RUNTIME_DIR)
 	// degrades to "no scripting API this session," not a refusal to edit.
-	if stop, err := serveBuffer(m.view, path, writes); err != nil {
+	if stop, err := serveBuffer(m.view, path, writes, gotos); err != nil {
 		fmt.Fprintln(os.Stderr, "9ed: warning: 9p server disabled:", err)
 	} else {
 		defer stop()
@@ -359,13 +373,18 @@ type model struct {
 	// only reader, on tui's single event-loop goroutine, same as every
 	// other model mutation.
 	writes chan p9WriteMsg
+
+	// gotos is /goto's Close-time commit (see fs9p.go's p9GotoMsg,
+	// plumb.go) — Init's waitForP9Goto Cmd is the only reader, same
+	// single-goroutine convention as writes.
+	gotos chan p9GotoMsg
 }
 
-func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg) *model {
+func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg, gotos chan p9GotoMsg) *model {
 	theme := style.Default(style.DetectAppearance(os.Getenv))
 	return &model{
 		path: path, src: src, seg: seg, cards: cards, theme: theme,
-		view: &bufferView{}, writes: writes,
+		view: &bufferView{}, writes: writes, gotos: gotos,
 		notesFile: notes.New(),
 		refs:      deck.References(src, cards),
 	}
@@ -454,7 +473,9 @@ func (m *model) statusLine(rest string) string {
 	return rest
 }
 
-func (m *model) Init() tui.Cmd { return waitForP9Write(m.writes) }
+func (m *model) Init() tui.Cmd {
+	return tui.Batch(waitForP9Write(m.writes), waitForP9Goto(m.gotos))
+}
 
 // waitForP9Write is the long-running "listen for an external write"
 // Cmd tui's docs/GUIDE.md calls for: it blocks on its own goroutine
@@ -465,6 +486,20 @@ func (m *model) Init() tui.Cmd { return waitForP9Write(m.writes) }
 func waitForP9Write(writes <-chan p9WriteMsg) tui.Cmd {
 	return func() tui.Msg {
 		req, ok := <-writes
+		if !ok {
+			return nil
+		}
+		return req
+	}
+}
+
+// waitForP9Goto is waitForP9Write's counterpart for /goto (see
+// gotoFile.Close, fs9p.go) — same shape, same nil-channel behavior
+// (blocks forever rather than panicking, for a bufferFS built without
+// goto support, e.g. in tests that don't exercise this path).
+func waitForP9Goto(gotos <-chan p9GotoMsg) tui.Cmd {
+	return func() tui.Msg {
+		req, ok := <-gotos
 		if !ok {
 			return nil
 		}
@@ -651,6 +686,18 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 		v.result <- nil
 		return m, waitForP9Write(m.writes)
+
+	case p9GotoMsg:
+		// Applies regardless of current mode — same "external trigger
+		// cuts across whatever the user's doing" precedent p9WriteMsg
+		// above already sets (it updates m.edited unconditionally too,
+		// not just while m.editing) — not gated on m.editing/m.searching/
+		// m.replacing. goToLine itself never fails (an out-of-range line
+		// just clamps, matching {n}G's own behavior), so there's nothing
+		// for the result channel to report but success.
+		m.goToLine(v.line)
+		v.result <- nil
+		return m, waitForP9Goto(m.gotos)
 
 	case startSearchMsg:
 		m.cancelPendingNav()

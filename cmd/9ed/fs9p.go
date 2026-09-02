@@ -2,6 +2,7 @@
 // buffer, served as:
 //
 //	/tag                status line: path, card count, dirty state
+//	/goto               write-only; jump to a line (plumb.go, item 3)
 //	/cards/<n>/title
 //	/cards/<n>/body     writable as of M8 — see cardBodyFile
 //	/cards/<n>/lang     the card's Kind (e.g. "func", "heading") — the
@@ -42,6 +43,21 @@ type bufferFS struct {
 	// itself reports the error rather than leaving Close to fail on a
 	// nil channel send.
 	writes chan<- p9WriteMsg
+
+	// gotos is /goto's Close-time commit, the same shape as writes —
+	// see p9GotoMsg's doc comment (plumb.go) and gotoFile below. Also
+	// nil-safe the same way.
+	gotos chan<- p9GotoMsg
+}
+
+// p9GotoMsg is gotoFile's Close-time "jump to this line" request —
+// mirrors p9WriteMsg exactly (see its own doc comment for why result is
+// unbuffered): sent to bufferFS.gotos and, on the other end, both the
+// tui.Msg a listening Cmd turns it into for Update to apply (see
+// main.go's waitForP9Goto/Update) and the channel element type.
+type p9GotoMsg struct {
+	line   int
+	result chan<- error
 }
 
 // p9WriteMsg is cardBodyFile's Close-time "commit this card's new
@@ -107,6 +123,8 @@ func (d *dirFile) Walk(ctx context.Context, name string) (server.File, error) {
 		switch name {
 		case "tag":
 			return &objFile{name: "tag", content: d.fs.tagContent}, nil
+		case "goto":
+			return &gotoFile{fs: d.fs}, nil
 		case "cards":
 			return &dirFile{fs: d.fs, kind: kindCards}, nil
 		}
@@ -187,6 +205,7 @@ func (d *dirFile) Read(ctx context.Context, offset int64, p []byte) (int, error)
 	case kindRoot:
 		entries = []p9.Stat{
 			{Qid: p9.Qid{Type: p9.QTFILE}, Mode: 0o444, Name: "tag"},
+			{Qid: p9.Qid{Type: p9.QTFILE}, Mode: 0o222, Name: "goto"},
 			{Qid: p9.Qid{Type: p9.QTDIR}, Mode: p9.DMDIR | 0o555, Name: "cards"},
 		}
 	case kindCards:
@@ -364,6 +383,100 @@ func (f *cardBodyFile) Close() error {
 	}
 	result := make(chan error)
 	f.fs.writes <- p9WriteMsg{cardIdx: f.cardIdx, content: f.writeBuf, result: result}
+	return <-result
+}
+
+// gotoFile is /goto: write-only, accumulating a write buffer (parsed by
+// parseGotoRequest, plumb.go) that Close commits as a jump request —
+// the same accumulate-then-commit-on-Close shape as cardBodyFile, minus
+// the read side (there's nothing meaningful to read back from a
+// fire-and-forget control file).
+type gotoFile struct {
+	fs *bufferFS
+
+	writeBuf  []byte
+	writeMode bool
+}
+
+func (f *gotoFile) Qid() p9.Qid {
+	return p9.Qid{Type: p9.QTFILE, Path: qidPath("file/goto")}
+}
+
+func (f *gotoFile) Stat(ctx context.Context) (p9.Stat, error) {
+	return p9.Stat{Qid: f.Qid(), Mode: 0o222, Name: "goto"}, nil
+}
+
+func (f *gotoFile) WStat(ctx context.Context, st p9.Stat) error {
+	return fmt.Errorf("fs9p: goto: WStat not supported")
+}
+
+func (f *gotoFile) Walk(ctx context.Context, name string) (server.File, error) {
+	return nil, fmt.Errorf("fs9p: goto is not a directory")
+}
+
+func (f *gotoFile) Open(ctx context.Context, mode p9.Mode) error {
+	switch mode & 3 {
+	case p9.OWRITE, p9.ORDWR:
+		if f.fs.gotos == nil {
+			return fmt.Errorf("fs9p: goto: write support unavailable")
+		}
+		f.writeMode = true
+		f.writeBuf = nil
+	default:
+		return fmt.Errorf("fs9p: goto: write-only")
+	}
+	return nil
+}
+
+func (f *gotoFile) Create(ctx context.Context, name string, perm p9.Mode, mode p9.Mode) (server.File, error) {
+	return nil, fmt.Errorf("fs9p: goto is not a directory")
+}
+
+func (f *gotoFile) Read(ctx context.Context, offset int64, p []byte) (int, error) {
+	return 0, fmt.Errorf("fs9p: goto: write-only")
+}
+
+// Write accumulates writeBuf, same WriteAt-style semantics as
+// cardBodyFile.Write — see its own comment.
+func (f *gotoFile) Write(ctx context.Context, offset int64, p []byte) (int, error) {
+	if !f.writeMode {
+		return 0, fmt.Errorf("fs9p: goto: not open for writing")
+	}
+	end := offset + int64(len(p))
+	if end > int64(len(f.writeBuf)) {
+		grown := make([]byte, end)
+		copy(grown, f.writeBuf)
+		f.writeBuf = grown
+	}
+	copy(f.writeBuf[offset:end], p)
+	return len(p), nil
+}
+
+func (f *gotoFile) Remove(ctx context.Context) error {
+	return fmt.Errorf("fs9p: goto: remove not supported")
+}
+
+// Close parses the written request and, unless it names a file other
+// than the one already open — 9ed is single-buffer, so it genuinely
+// can't act on that rather than silently ignoring it — commits it as a
+// p9GotoMsg and blocks until the tui event loop has actually applied it
+// (same blocking-Close contract as cardBodyFile.Close).
+func (f *gotoFile) Close() error {
+	if !f.writeMode {
+		return nil
+	}
+	target, line, err := parseGotoRequest(string(f.writeBuf))
+	if err != nil {
+		return err
+	}
+	if target != "" {
+		open := f.fs.view.snapshot().path
+		if !samePath(target, open) {
+			return fmt.Errorf("fs9p: goto: %q is not the open file (%q) — 9ed is single-buffer, can't switch files", target, open)
+		}
+	}
+	result := make(chan error)
+	f.fs.gotos <- p9GotoMsg{line: line, result: result}
 	return <-result
 }
 

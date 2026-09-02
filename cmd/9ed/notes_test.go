@@ -200,7 +200,7 @@ func TestSaveCmdWritesSidecarOnlyWhenANoteChanged(t *testing.T) {
 	cards := deck.GoSegmenter{}.Segment(src)
 
 	t.Run("no note touched: no sidecar file written", func(t *testing.T) {
-		m := newModel(path, src, deck.GoSegmenter{}, cards, nil)
+		m := newModel(path, src, deck.GoSegmenter{}, cards, nil, nil)
 		msg := m.saveCmd()()
 		if sd, ok := msg.(saveDoneMsg); !ok || sd.err != nil {
 			t.Fatalf("saveCmd() = %#v, want a successful saveDoneMsg", msg)
@@ -211,7 +211,7 @@ func TestSaveCmdWritesSidecarOnlyWhenANoteChanged(t *testing.T) {
 	})
 
 	t.Run("a note touched: sidecar file written with the marshaled content", func(t *testing.T) {
-		m := newModel(path, src, deck.GoSegmenter{}, cards, nil)
+		m := newModel(path, src, deck.GoSegmenter{}, cards, nil, nil)
 		m.cursor = 1
 		m.noteEditing = true
 		mm, _ := m.Update(noteChangedMsg{value: "why this exists"})
