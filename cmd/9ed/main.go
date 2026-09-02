@@ -2,9 +2,11 @@
 // the file into structurally meaningful cards (see package deck) instead
 // of editing it as an undifferentiated block of lines. Nav mode navigates
 // the card list; Enter focuses the current card in Edit mode for direct
-// text editing, Esc returns to Nav. Ctrl+S reassembles every card back
-// into the file and writes it atomically; 't' toggles the light/dark
-// theme.
+// text editing, 'n' focuses it in Note mode instead to edit a markdown
+// annotation for it (see package notes), Esc returns to Nav from either.
+// Ctrl+S reassembles every card back into the file and writes it
+// atomically, alongside the file's .9an note sidecar if any note
+// changed; 't' toggles the light/dark theme.
 //
 // Every running buffer also serves its own state over 9P (see fs9p.go) —
 // a Unix-domain-socket server scriptable from kyu or any shell — and,
@@ -49,6 +51,7 @@ Nav mode:
   PgUp/PgDn    page up/down
   /            filter cards
   enter        edit current card
+  n            edit current card's note
   o / O        insert card below / above
   t            toggle light/dark theme
   ^s           save
@@ -57,6 +60,11 @@ Nav mode:
 Edit mode:
   esc          back to Nav
   ^↑ / ^↓      jump to previous / next card, staying in Edit
+  ^s           save
+  ^c           quit
+
+Note mode (entered with 'n' from Nav):
+  esc          back to Nav
   ^s           save
   ^c           quit
 `
@@ -160,8 +168,9 @@ type model struct {
 	seg   deck.Segmenter
 	cards []deck.Card
 
-	cursor  int
-	editing bool
+	cursor      int
+	editing     bool
+	noteEditing bool // see noteView; mutually exclusive with editing
 
 	// pendingG is true right after a lone 'g' in Nav mode, waiting to
 	// see if a second 'g' completes vim's "go to first card" — reset by
@@ -205,10 +214,19 @@ type model struct {
 	saveErr string // last save's error, if any; cleared by the next successful save
 
 	// notesFile holds this file's .9an sidecar (see package notes) —
-	// always non-nil, empty when no sidecar exists yet. Read-only for
-	// now: loaded once at startup (see run()), nothing in the model
-	// writes to it yet — that's the note-editing UI, a separate step.
+	// always non-nil, empty when no sidecar exists yet. Loaded once at
+	// startup (see run()); noteView's OnChange (see noteChangedMsg)
+	// mutates it live, the same way editView's OnChange keeps m.edited
+	// current — neither hits disk until Save.
 	notesFile *notes.Sidecar
+
+	// noteEdited marks which cards (by cursor index, same convention as
+	// m.edited) have had their note touched this session — separate
+	// from m.edited because a note change never affects reassemble/src
+	// at all, only whether Save needs to rewrite the .9an sidecar.
+	// Feeds the same '*'/dirty indicators m.edited does (see isDirty),
+	// and is cleared alongside it on a successful Save.
+	noteEdited map[int]bool
 
 	// refs is deck.References(src, cards): for card i, the indices of
 	// other cards whose body mentions cards[i].Name. Recomputed
@@ -280,15 +298,35 @@ func (m *model) setEdited(i int, value string) {
 	m.edited[i] = value
 }
 
+// isDirty reports whether card i has an unsaved change — either its
+// body (m.edited) or its note (m.noteEdited). Both feed the same
+// indicator: from the status line's point of view, either one means
+// Ctrl+S has something to write.
+func (m *model) isDirty(i int) bool {
+	_, bodyDirty := m.edited[i]
+	return bodyDirty || m.noteEdited[i]
+}
+
 // dirtyMark is the whole-deck "unsaved" indicator for the status line —
-// separate from, and in addition to, the per-card '*' markers in
+// separate from, and in addition to, the per-card dirty markers in
 // navView, which show *which* cards changed rather than just whether
 // anything did.
 func (m *model) dirtyMark() string {
-	if len(m.edited) > 0 {
+	if len(m.edited) > 0 || len(m.noteEdited) > 0 {
 		return " [unsaved]"
 	}
 	return ""
+}
+
+// finalizeNoteEdit drops the current card's note entirely if editing
+// left it empty, rather than persisting a blank "# kind: title" header
+// with nothing under it — mirrors abandonEmptyInsert's "don't keep an
+// empty placeholder" choice for a card inserted and then left untouched.
+func (m *model) finalizeNoteEdit() {
+	card := m.cards[m.cursor]
+	if body, ok := m.notesFile.Get(card.Kind, card.Title); ok && body == "" {
+		m.notesFile.Delete(card.Kind, card.Title)
+	}
 }
 
 // helpStyle renders the status line in the theme's Error color after a
@@ -351,6 +389,12 @@ const navPageSize = 10
 
 type enterEditMsg struct{}
 type editChangedMsg struct{ value string }
+
+// editNoteMsg is produced by listEvent on 'n' in Nav mode — the
+// note-editing counterpart to enterEditMsg. noteChangedMsg is produced
+// by noteView's TextArea OnChange, the counterpart to editChangedMsg.
+type editNoteMsg struct{}
+type noteChangedMsg struct{ value string }
 
 func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	switch v := msg.(type) {
@@ -426,6 +470,25 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.setEdited(m.cursor, v.value)
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 
+	case editNoteMsg:
+		m.cancelPendingNav()
+		m.gotoLineCursor = nil
+		// A freshly inserted, not-yet-saved placeholder (see insert.go)
+		// has no real (Kind, Title) yet — Save's resegmentation is what
+		// gives it one, so a note attached now would key against a
+		// value about to change and immediately orphan itself.
+		if len(m.cards) > 0 && m.cards[m.cursor].Kind != newCardKind {
+			m.noteEditing = true
+		}
+
+	case noteChangedMsg:
+		card := m.cards[m.cursor]
+		m.notesFile.Set(card.Kind, card.Title, v.value)
+		if m.noteEdited == nil {
+			m.noteEdited = make(map[int]bool)
+		}
+		m.noteEdited[m.cursor] = true
+
 	case insertMsg:
 		m.cancelPendingNav()
 		m.gotoLineCursor = nil
@@ -491,7 +554,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			break
 		}
 		m.saveErr = ""
-		m.src, m.cards, m.edited = v.src, v.cards, nil
+		m.src, m.cards, m.edited, m.noteEdited = v.src, v.cards, nil, nil
 		m.refs = deck.References(m.src, m.cards)
 		if m.cursor >= len(m.cards) {
 			m.cursor = max(len(m.cards)-1, 0)
@@ -510,6 +573,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 's' {
 			m.cancelPendingNav()
 			return m, m.saveCmd()
+		}
+		if m.noteEditing {
+			// Esc is the only way out of note-editing (entry is
+			// Nav-only, so there's exactly one place to return to,
+			// unlike Edit mode's cross-card jump — nothing else needed
+			// here). Every other key must reach noteView's TextArea as
+			// a literal character, same as m.editing below.
+			if v.Key == input.KeyEsc && v.Mod == 0 {
+				m.finalizeNoteEdit()
+				m.noteEditing = false
+				return m, nil
+			}
+			return m, nil
 		}
 		if m.editing {
 			// Plain Esc (unmodified) is Edit->Nav. It deliberately is
@@ -558,10 +634,14 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 }
 
 func (m *model) View() tui.Node {
-	if m.editing {
+	switch {
+	case m.noteEditing:
+		return m.noteView()
+	case m.editing:
 		return m.editView()
+	default:
+		return m.navView()
 	}
-	return m.navView()
 }
 
 func (m *model) navView() tui.Node {
@@ -577,8 +657,8 @@ func (m *model) navView() tui.Node {
 	for pos, i := range indices {
 		c := m.cards[i]
 		mark := " "
-		if _, ok := m.edited[i]; ok {
-			mark = "*" // edited-but-unsaved indicator
+		if m.isDirty(i) {
+			mark = dirtyGlyph // unsaved body or note change
 		}
 		titles[pos] = fmt.Sprintf("%s%-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
 		if i == m.cursor {
@@ -592,7 +672,7 @@ func (m *model) navView() tui.Node {
 	if m.searching {
 		help = tui.Text(fmt.Sprintf("/%s  (%d match%s)  —  enter: go   esc: cancel", m.query, len(indices), pluralS(len(indices))), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   o/O: insert   ^s: save   t: theme   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   n: note   o/O: insert   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -601,6 +681,16 @@ func (m *model) navView() tui.Node {
 		tui.Child(layout.Length(1), help),
 	).Margin(1)
 }
+
+// Glyphs for Nav mode's list line — single-width in any monospace
+// terminal font (tui's Painter already handles a genuinely wide rune
+// correctly, per its own wcwidth-aware Text/SetCell, but these are
+// picked to stay compact and universally renderable regardless).
+const (
+	dirtyGlyph = "●" // unsaved body or note change (replaces the old plain '*')
+	noteGlyph  = "✎" // this card has a .9an note attached
+	refGlyph   = "↩" // followed by a count: N other cards mention this one's Name
+)
 
 // cardBadges returns a compact, space-prefixed suffix noting card i's
 // system-derived annotations for Nav mode's list line — whether it has
@@ -613,10 +703,10 @@ func (m *model) cardBadges(i int) string {
 	c := m.cards[i]
 	badges := ""
 	if _, ok := m.notesFile.Get(c.Kind, c.Title); ok {
-		badges += "  [note]"
+		badges += "  " + noteGlyph
 	}
 	if i < len(m.refs) && len(m.refs[i]) > 0 {
-		badges += fmt.Sprintf("  [refs:%d]", len(m.refs[i]))
+		badges += fmt.Sprintf("  %s%d", refGlyph, len(m.refs[i]))
 	}
 	return badges
 }
@@ -693,6 +783,36 @@ func (m *model) editView() tui.Node {
 	).Margin(1)
 }
 
+// noteView renders the current card's .9an note full-screen, in place
+// of its source body — the note-editing counterpart to editView, reusing
+// the same TextArea widget and mode-swap shape rather than a new UI
+// paradigm: 9ed already treats "leave Nav, edit one thing full-screen,
+// Esc to return" as the one way to focus on something, and a note is no
+// exception. No syntax highlighting or line-number gutter — both are
+// about correlating with the source file's own structure, which a note,
+// being about the card rather than part of it, has no need of.
+func (m *model) noteView() tui.Node {
+	theme := m.theme
+	card := m.cards[m.cursor]
+	body, _ := m.notesFile.Get(card.Kind, card.Title)
+
+	textarea := widget.TextArea(widget.TextAreaOptions{
+		Theme:    theme,
+		Value:    body,
+		OnChange: func(v string) tui.Msg { return noteChangedMsg{value: v} },
+		// Same reasoning as editView's TextArea: must not be plain Esc,
+		// or the m.noteEditing case in Update never sees it.
+		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
+	}).Key(card.Span)
+
+	help := tui.Text(m.statusLine(fmt.Sprintf("Note for: %s%s  —  esc: back   ^s: save", card.Title, m.dirtyMark())), m.helpStyle())
+
+	return tui.Box(layout.Vertical,
+		tui.Child(layout.Fill(1), textarea),
+		tui.Child(layout.Length(1), help),
+	).Margin(1)
+}
+
 // listEvent is the List widget's onEvent for Nav mode. While searching
 // (see search.go), every key means something different — all of
 // j/k/g/G/o/O/digits become query text — so that case is split off into
@@ -712,6 +832,8 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return navDown
 	case ke.Key == input.KeyEnter:
 		return enterEditMsg{}
+	case ke.Rune == 'n':
+		return editNoteMsg{}
 	case ke.Rune == 'o':
 		return insertBelow
 	case ke.Rune == 'O':

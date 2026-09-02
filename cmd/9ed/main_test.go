@@ -189,22 +189,24 @@ func TestCardBadges(t *testing.T) {
 		}
 	})
 
-	t.Run("a note attached to this card's (Kind, Title) shows [note]", func(t *testing.T) {
+	t.Run("a note attached to this card's (Kind, Title) shows the note glyph", func(t *testing.T) {
 		sc := notes.New()
 		sc.Set("func", "func Foo() error", "why this exists")
 		m := &model{cards: cards, notesFile: sc}
-		if got := m.cardBadges(0); got != "  [note]" {
-			t.Errorf("cardBadges(0) = %q, want %q", got, "  [note]")
+		want := "  " + noteGlyph
+		if got := m.cardBadges(0); got != want {
+			t.Errorf("cardBadges(0) = %q, want %q", got, want)
 		}
 		if got := m.cardBadges(1); got != "" {
 			t.Errorf("cardBadges(1) = %q, want \"\" (no note attached to card 1)", got)
 		}
 	})
 
-	t.Run("references show [refs:N]", func(t *testing.T) {
+	t.Run("references show the ref glyph and count", func(t *testing.T) {
 		m := &model{cards: cards, refs: [][]int{nil, {0}}}
-		if got := m.cardBadges(1); got != "  [refs:1]" {
-			t.Errorf("cardBadges(1) = %q, want %q", got, "  [refs:1]")
+		want := "  " + refGlyph + "1"
+		if got := m.cardBadges(1); got != want {
+			t.Errorf("cardBadges(1) = %q, want %q", got, want)
 		}
 		if got := m.cardBadges(0); got != "" {
 			t.Errorf("cardBadges(0) = %q, want \"\" (nothing references card 0)", got)
@@ -222,8 +224,9 @@ func TestCardBadges(t *testing.T) {
 		sc := notes.New()
 		sc.Set("func", "func Foo() error", "note text")
 		m := &model{cards: cards, notesFile: sc, refs: [][]int{nil, {0}}}
-		if got := m.cardBadges(0); got != "  [note]" {
-			t.Errorf("cardBadges(0) = %q, want %q", got, "  [note]")
+		want := "  " + noteGlyph
+		if got := m.cardBadges(0); got != want {
+			t.Errorf("cardBadges(0) = %q, want %q", got, want)
 		}
 	})
 }

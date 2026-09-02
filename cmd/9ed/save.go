@@ -8,6 +8,7 @@ import (
 	"github.com/sandgorgon/tui/tui"
 
 	"github.com/sandgorgon/9ed/deck"
+	"github.com/sandgorgon/9ed/notes"
 )
 
 // reassemble rebuilds the whole file from cards, in order: each card's
@@ -50,18 +51,38 @@ type saveDoneMsg struct {
 	err   error
 }
 
-// saveCmd reassembles the current deck (synchronously — cheap, and
-// Update is the only place it's safe to read m's fields) and returns a
-// Cmd that does the actual disk I/O on its own goroutine, per
-// tui.Model's contract that Update/View must never block on I/O
-// directly.
+// saveCmd reassembles the current deck and marshals the note sidecar
+// (both synchronously — cheap, and Update is the only place it's safe
+// to read m's fields) and returns a Cmd that does the actual disk I/O
+// on its own goroutine, per tui.Model's contract that Update/View must
+// never block on I/O directly. The sidecar is only written at all when
+// a note was actually touched this session (m.noteEdited non-empty) —
+// otherwise a file that's never had a note gets no .9an written for it,
+// not an empty one.
 func (m *model) saveCmd() tui.Cmd {
 	path := m.path
 	seg := m.seg
 	newSrc := m.reassemble()
+
+	writeSidecar := len(m.noteEdited) > 0
+	var sidecar []byte
+	if writeSidecar {
+		sidecar = m.notesFile.Marshal()
+	}
+
 	return func() tui.Msg {
 		if err := atomicWrite(path, newSrc); err != nil {
 			return saveDoneMsg{err: err}
+		}
+		// The source is already safely on disk by this point even if
+		// the sidecar write below fails — only the note side would
+		// stay unsaved (m.noteEdited isn't cleared on this error path,
+		// so the next Save retries it; re-writing the already-current
+		// source again is harmless).
+		if writeSidecar {
+			if err := atomicWrite(notes.SidecarPath(path), sidecar); err != nil {
+				return saveDoneMsg{err: err}
+			}
 		}
 		return saveDoneMsg{src: newSrc, cards: seg.Segment(newSrc)}
 	}
