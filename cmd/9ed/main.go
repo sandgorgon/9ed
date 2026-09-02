@@ -706,7 +706,7 @@ func (m *model) cardBadges(i int) string {
 		badges += "  " + noteGlyph
 	}
 	if i < len(m.refs) && len(m.refs[i]) > 0 {
-		badges += fmt.Sprintf("  %s%d", refGlyph, len(m.refs[i]))
+		badges += fmt.Sprintf("  %s %d", refGlyph, len(m.refs[i]))
 	}
 	return badges
 }

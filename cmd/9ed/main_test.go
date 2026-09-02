@@ -204,7 +204,7 @@ func TestCardBadges(t *testing.T) {
 
 	t.Run("references show the ref glyph and count", func(t *testing.T) {
 		m := &model{cards: cards, refs: [][]int{nil, {0}}}
-		want := "  " + refGlyph + "1"
+		want := "  " + refGlyph + " 1"
 		if got := m.cardBadges(1); got != want {
 			t.Errorf("cardBadges(1) = %q, want %q", got, want)
 		}
