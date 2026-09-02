@@ -8,6 +8,17 @@ import (
 	"github.com/sandgorgon/9ed/deck"
 )
 
+// newBodySearchTestModel segments a real Go snippet with GoSegmenter so
+// Span/body content are internally consistent (rather than hand-picked
+// byte offsets that could silently drift from src) — for exercising
+// title-or-body matching, where the earlier title-only fixture's
+// zero-Span cards (always an empty body) can't help.
+func newBodySearchTestModel() *model {
+	src := []byte("package p\n\nfunc Walrus() {}\n\nfunc Beta() {\n\tWalrus()\n}\n")
+	cards := deck.GoSegmenter{}.Segment(src) // 0: preamble, 1: Walrus, 2: Beta
+	return &model{path: "f.go", src: src, cards: cards, view: &bufferView{}}
+}
+
 // newSearchTestModel's titles are chosen so "wal" (and its prefixes)
 // cleanly picks out exactly the three Walrus/Walnut cards, interleaved
 // with two that never match "w" at all — avoiding coincidental overlaps
@@ -46,6 +57,116 @@ func TestFilteredIndices(t *testing.T) {
 		m.query = "zzz"
 		if got := m.filteredIndices(); len(got) != 0 {
 			t.Errorf("filteredIndices() = %v, want empty", got)
+		}
+	})
+
+	t.Run("matches a card whose body, not title, contains the query", func(t *testing.T) {
+		m := newBodySearchTestModel() // 0: preamble, 1: Walrus, 2: Beta (calls Walrus())
+		m.query = "Walrus"
+		got := m.filteredIndices()
+		want := []int{1, 2}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("filteredIndices() = %v, want %v (Walrus by title, Beta by body reference)", got, want)
+		}
+	})
+
+	t.Run("regexp syntax is honored, not treated as a literal string", func(t *testing.T) {
+		m := newBodySearchTestModel()
+		m.query = "^func Beta"
+		got := m.filteredIndices()
+		if len(got) != 1 || got[0] != 2 {
+			t.Errorf("filteredIndices() = %v, want [2] (only Beta's body starts with \"func Beta\")", got)
+		}
+	})
+
+	t.Run("an invalid in-progress regexp matches nothing, not everything", func(t *testing.T) {
+		m := newBodySearchTestModel()
+		m.query = "Wal(rus" // unbalanced paren — still being typed
+		if got := m.filteredIndices(); len(got) != 0 {
+			t.Errorf("filteredIndices() = %v, want empty for an invalid pattern", got)
+		}
+	})
+}
+
+func TestBodyMatches(t *testing.T) {
+	re, ok := searchRegexp("Walrus")
+	if !ok {
+		t.Fatal("searchRegexp(\"Walrus\") failed to compile")
+	}
+
+	t.Run("finds every occurrence, in order", func(t *testing.T) {
+		body := "Walrus lives near another Walrus"
+		got := bodyMatches(re, body)
+		want := [][2]int{{0, 6}, {26, 32}}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("bodyMatches() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("no matches returns nil", func(t *testing.T) {
+		if got := bodyMatches(re, "no such word here"); got != nil {
+			t.Errorf("bodyMatches() = %v, want nil", got)
+		}
+	})
+
+	t.Run("byte offsets are translated to rune offsets for non-ASCII content", func(t *testing.T) {
+		// "café " is 5 runes but 6 bytes (é is 2 bytes) — Walrus starting
+		// right after it must land at rune offset 5, not byte offset 6.
+		body := "café Walrus"
+		got := bodyMatches(re, body)
+		want := [][2]int{{5, 11}}
+		if len(got) != 1 || got[0] != want[0] {
+			t.Errorf("bodyMatches() = %v, want %v (rune offsets)", got, want)
+		}
+	})
+
+	t.Run("zero-width matches are dropped", func(t *testing.T) {
+		degenerate, ok := searchRegexp("z*") // matches the empty string everywhere
+		if !ok {
+			t.Fatal("searchRegexp(\"z*\") failed to compile")
+		}
+		if got := bodyMatches(degenerate, "abc"); got != nil {
+			t.Errorf("bodyMatches() = %v, want nil (all matches were zero-width)", got)
+		}
+	})
+}
+
+func TestNextPrevMatchFrom(t *testing.T) {
+	matches := [][2]int{{2, 5}, {10, 13}, {20, 23}}
+
+	t.Run("nextMatchFrom finds the first match at or after from", func(t *testing.T) {
+		if got, ok := nextMatchFrom(matches, 6); !ok || got != matches[1] {
+			t.Errorf("nextMatchFrom(6) = %v, %v, want %v, true", got, ok, matches[1])
+		}
+	})
+
+	t.Run("nextMatchFrom includes a match starting exactly at from", func(t *testing.T) {
+		if got, ok := nextMatchFrom(matches, 10); !ok || got != matches[1] {
+			t.Errorf("nextMatchFrom(10) = %v, %v, want %v, true", got, ok, matches[1])
+		}
+	})
+
+	t.Run("nextMatchFrom past the last match is not ok", func(t *testing.T) {
+		if _, ok := nextMatchFrom(matches, 24); ok {
+			t.Error("nextMatchFrom(24) ok = true, want false")
+		}
+	})
+
+	t.Run("prevMatchBefore finds the last match strictly before from", func(t *testing.T) {
+		if got, ok := prevMatchBefore(matches, 15); !ok || got != matches[1] {
+			t.Errorf("prevMatchBefore(15) = %v, %v, want %v, true", got, ok, matches[1])
+		}
+	})
+
+	t.Run("prevMatchBefore excludes a match starting exactly at from", func(t *testing.T) {
+		if got, ok := prevMatchBefore(matches, 10); !ok || got != matches[0] {
+			t.Errorf("prevMatchBefore(10) = %v, %v, want %v, true", got, ok, matches[0])
+		}
+	})
+
+	t.Run("prevMatchBefore before the first match is not ok", func(t *testing.T) {
+		if _, ok := prevMatchBefore(matches, 2); ok {
+			t.Error("prevMatchBefore(2) ok = true, want false")
 		}
 	})
 }
