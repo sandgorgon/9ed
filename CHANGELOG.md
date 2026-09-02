@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-09-02
+
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now
   restores each card's cursor position on return, instead of always
   landing at the default start position. Third attempt at this
