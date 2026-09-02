@@ -660,7 +660,7 @@ func (m *model) navView() tui.Node {
 		if m.isDirty(i) {
 			mark = dirtyGlyph // unsaved body or note change
 		}
-		titles[pos] = fmt.Sprintf("%s%-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
+		titles[pos] = fmt.Sprintf("%s %-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
 		if i == m.cursor {
 			cursorInList = pos
 		}
