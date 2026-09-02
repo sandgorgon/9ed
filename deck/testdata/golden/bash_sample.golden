@@ -1,3 +1,3 @@
 preamble  name=""           [0,88) "#!/bin/bash"
-func      name=""           [88,163) "greet() {"
-func      name=""           [163,284) "cleanup()"
+func      name="greet"      [88,163) "greet() {"
+func      name="cleanup"    [163,284) "cleanup()"

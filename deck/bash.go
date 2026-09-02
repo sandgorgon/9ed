@@ -23,14 +23,29 @@ type BashSegmenter struct{}
 // bashFuncRe matches an unindented Bash function definition line whose
 // '{' is on the same line: `function name`, `function name()`, or bare
 // `name()`, each followed (with optional whitespace) by '{'. Exactly one
-// of the two name groups is non-empty depending on which form matched.
-var bashFuncRe = regexp.MustCompile(`^(?:function\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(\s*\))?|[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\))\s*\{`)
+// of the two capturing groups is non-empty depending on which form
+// matched — see bashFuncName.
+var bashFuncRe = regexp.MustCompile(`^(?:function\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{`)
 
 // bashFuncHeaderRe matches the same forms as bashFuncRe but with nothing
 // after the name/parens — the brace-on-its-own-next-line style; Segment
 // only treats a header match as a function def once it's confirmed the
 // next non-blank line is a lone '{'.
-var bashFuncHeaderRe = regexp.MustCompile(`^(?:function\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(\s*\))?|[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\))\s*$`)
+var bashFuncHeaderRe = regexp.MustCompile(`^(?:function\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*$`)
+
+// bashFuncName returns the captured function name from a bashFuncRe or
+// bashFuncHeaderRe submatch slice (as returned by FindSubmatch): group 1
+// for the `function name` form, group 2 for the bare `name()` form —
+// exactly one is non-empty when m is a real match.
+func bashFuncName(m [][]byte) string {
+	if len(m) < 3 {
+		return ""
+	}
+	if len(m[1]) > 0 {
+		return string(m[1])
+	}
+	return string(m[2])
+}
 
 func (BashSegmenter) Segment(src []byte) []Card {
 	if len(src) == 0 {
@@ -39,6 +54,7 @@ func (BashSegmenter) Segment(src []byte) []Card {
 	type fn struct {
 		spanStart int // includes an attached leading '#' comment block, if any
 		declStart int // the def line itself, for Title
+		name      string
 	}
 	var fns []fn
 
@@ -47,14 +63,16 @@ func (BashSegmenter) Segment(src []byte) []Card {
 		lineStart := pos
 		line, next := bashLine(src, pos)
 
-		isFunc := bashFuncRe.Match(line)
-		if !isFunc && bashFuncHeaderRe.Match(bytes.TrimRight(line, "\r")) {
+		name := ""
+		if m := bashFuncRe.FindSubmatch(line); m != nil {
+			name = bashFuncName(m)
+		} else if m := bashFuncHeaderRe.FindSubmatch(bytes.TrimRight(line, "\r")); m != nil {
 			if brace, ok := bashNextNonBlankLine(src, next); ok && bytes.Equal(brace, []byte("{")) {
-				isFunc = true
+				name = bashFuncName(m)
 			}
 		}
-		if isFunc {
-			fns = append(fns, fn{spanStart: bashAttachedCommentStart(src, lineStart), declStart: lineStart})
+		if name != "" {
+			fns = append(fns, fn{spanStart: bashAttachedCommentStart(src, lineStart), declStart: lineStart, name: name})
 		}
 		pos = next
 	}
@@ -76,7 +94,7 @@ func (BashSegmenter) Segment(src []byte) []Card {
 		if i+1 < len(fns) {
 			end = fns[i+1].spanStart
 		}
-		cards = append(cards, Card{Title: firstLine(src[f.declStart:]), Span: [2]int{f.spanStart, end}, Kind: "func"})
+		cards = append(cards, Card{Title: firstLine(src[f.declStart:]), Span: [2]int{f.spanStart, end}, Kind: "func", Name: f.name})
 	}
 	return cards
 }
