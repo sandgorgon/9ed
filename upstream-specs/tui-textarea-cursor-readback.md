@@ -1,6 +1,8 @@
 # tui: TextArea needs a way to read back the live cursor position
 
-**Status:** Proposed, not yet filed.
+**Status:** Filed, not yet resolved.
+
+**Issue:** https://github.com/sandgorgon/tui/issues/15
 
 **Repo:** github.com/sandgorgon/tui
 **Origin:** surfaced designing 9ed's "restore cursor position across a

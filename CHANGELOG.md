@@ -89,7 +89,8 @@
   `OnCursorChange` callback or an exported `CursorOffset()` accessor —
   the read-side counterpart of the gap
   `tui-cursor-offset-and-numeric-gutter.md` already closed for the
-  write side — not yet submitted to the `tui` repo.
+  write side — filed as
+  [`tui#15`](https://github.com/sandgorgon/tui/issues/15).
 - Bumped `9sh` v0.3.1 → v0.4.0. Caught and fixed a real gap it exposed
   in `KyuSegmenter`: `v0.4.0` added three kyu AST node kinds
   (`WhileExpr`/`BreakExpr`/`ContinueExpr` for the new `while`/`break`/
