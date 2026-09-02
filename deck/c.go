@@ -43,7 +43,8 @@ func (CSegmenter) Segment(src []byte) []Card {
 		}
 		body := src[start:b.offset]
 		title := cFirstRealLine(body)
-		cards = append(cards, Card{Title: string(title), Span: [2]int{start, b.offset}, Kind: classifyCCard(title, b.hadBlock)})
+		kind := classifyCCard(title, b.hadBlock)
+		cards = append(cards, Card{Title: string(title), Span: [2]int{start, b.offset}, Kind: kind, Name: cCardName(title, kind)})
 		start = b.offset
 	}
 	// Trailing content after the last trigger (trailing whitespace, a
@@ -268,4 +269,93 @@ func classifyCCard(line []byte, hadBlock bool) string {
 		return "func"
 	}
 	return "decl"
+}
+
+// cCardName extracts a card's defined identifier from its own first
+// real code line, when kind makes that unambiguous — see Card.Name.
+// "decl", "preprocessor", and "preamble" cards get no Name: a plain
+// declaration/prototype line is too varied a shape to reliably pick one
+// identifier out of, and a macro's own name is left for a later pass.
+func cCardName(line []byte, kind string) string {
+	switch kind {
+	case "func":
+		return cFuncName(line)
+	case "struct", "class", "union", "enum", "namespace":
+		return cContainerName(line, kind)
+	}
+	return ""
+}
+
+// cFuncName returns the identifier immediately before the parameter
+// list's '(' on a function definition's line — e.g. "bar" from
+// "int bar(int x) {", or "method" from "MyClass::method(int x) {" (the
+// "::" scope is naturally excluded, since ':' isn't an identifier
+// character, matching GoSegmenter's choice to name a method without its
+// receiver). Returns "" for an operator overload (its symbolic name
+// isn't a plain identifier) or when '(' isn't on this first line at all.
+func cFuncName(line []byte) string {
+	p := bytes.IndexByte(line, '(')
+	if p < 0 {
+		return ""
+	}
+	end := p
+	for end > 0 && (line[end-1] == ' ' || line[end-1] == '\t') {
+		end--
+	}
+	start := end
+	for start > 0 && cIsIdentCont(line[start-1]) {
+		start--
+	}
+	if start == end || !cIsIdentStart(line[start]) {
+		return ""
+	}
+	return string(line[start:end])
+}
+
+// cContainerName returns the name following a struct/class/union/enum/
+// namespace keyword on line — e.g. "Foo" from "struct Foo {" or "Color"
+// from "enum class Color {" (a second keyword, "class", is skipped).
+// Returns "" for an anonymous container, e.g. "typedef struct {" with
+// its name (if any) trailing on a later line this function never sees —
+// a known gap, not a wrong guess: no Name beats a misattributed one.
+func cContainerName(line []byte, kind string) string {
+	fields := bytes.Fields(line)
+	kwIdx := -1
+	for i, f := range fields {
+		if string(f) == kind {
+			kwIdx = i
+			break
+		}
+	}
+	if kwIdx < 0 {
+		return ""
+	}
+	for _, f := range fields[kwIdx+1:] {
+		isKeyword := false
+		for _, kw := range cTypeKeywords {
+			if bytes.Equal(f, kw) {
+				isKeyword = true
+				break
+			}
+		}
+		if isKeyword {
+			continue
+		}
+		return cLeadingIdent(f)
+	}
+	return ""
+}
+
+// cLeadingIdent returns the leading run of identifier characters in b,
+// or "" if b doesn't start with one (e.g. "{" for an anonymous
+// container, or ":" for a base-class list with no space before it).
+func cLeadingIdent(b []byte) string {
+	if len(b) == 0 || !cIsIdentStart(b[0]) {
+		return ""
+	}
+	i := 1
+	for i < len(b) && cIsIdentCont(b[i]) {
+		i++
+	}
+	return string(b[:i])
 }

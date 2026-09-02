@@ -29,29 +29,39 @@ func TestCSegmenter(t *testing.T) {
 		{
 			name: "function definition",
 			src:  "int main() {\n\treturn 0;\n}\n",
-			want: []Card{{Kind: "func", Title: "int main() {"}},
+			want: []Card{{Kind: "func", Title: "int main() {", Name: "main"}},
+		},
+		{
+			name: "method definition names only the method, not its class scope",
+			src:  "void MyClass::run() {\n\treturn;\n}\n",
+			want: []Card{{Kind: "func", Title: "void MyClass::run() {", Name: "run"}},
 		},
 		{
 			name: "struct with trailing semicolon stays one card",
 			src:  "struct Point {\n\tint x;\n\tint y;\n};\n",
-			want: []Card{{Kind: "struct", Title: "struct Point {"}},
+			want: []Card{{Kind: "struct", Title: "struct Point {", Name: "Point"}},
 		},
 		{
 			name: "typedef struct with a name absorbs the trailing identifier and ;",
 			src:  "typedef struct {\n\tint x;\n} Point;\n",
-			want: []Card{{Kind: "struct", Title: "typedef struct {"}},
+			want: []Card{{Kind: "struct", Title: "typedef struct {"}}, // Name empty: "Point" trails on a later line
 		},
 		{
 			name: "enum",
 			src:  "enum Color { RED, GREEN, BLUE };\n",
-			want: []Card{{Kind: "enum", Title: "enum Color { RED, GREEN, BLUE };"}},
+			want: []Card{{Kind: "enum", Title: "enum Color { RED, GREEN, BLUE };", Name: "Color"}},
+		},
+		{
+			name: "enum class names past the second keyword",
+			src:  "enum class Status { OK, FAIL };\n",
+			want: []Card{{Kind: "enum", Title: "enum class Status { OK, FAIL };", Name: "Status"}},
 		},
 		{
 			name: "consecutive #include lines merge into one preprocessor card",
 			src:  "#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n\treturn 0;\n}\n",
 			want: []Card{
 				{Kind: "preprocessor", Title: "#include <stdio.h>"},
-				{Kind: "func", Title: "int main() {"},
+				{Kind: "func", Title: "int main() {", Name: "main"},
 			},
 		},
 		{
@@ -71,8 +81,8 @@ func TestCSegmenter(t *testing.T) {
 			name: "two functions in sequence",
 			src:  "int a() {\n\treturn 1;\n}\n\nint b() {\n\treturn 2;\n}\n",
 			want: []Card{
-				{Kind: "func", Title: "int a() {"},
-				{Kind: "func", Title: "int b() {"},
+				{Kind: "func", Title: "int a() {", Name: "a"},
+				{Kind: "func", Title: "int b() {", Name: "b"},
 			},
 		},
 	}
@@ -87,9 +97,9 @@ func TestCSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})
