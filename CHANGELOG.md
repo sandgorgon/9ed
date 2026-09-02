@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now
+  restores each card's cursor position on return, instead of always
+  landing at the default start position. Third attempt at this
+  feature, and the two that got it working: bumped `tui` to v0.4.0,
+  which fixed `tui#20` — `Ctrl+Up`/`Ctrl+Down` (and, extended to the
+  same gap, `Ctrl+PgUp`/`Ctrl+PgDown`) are now an explicit no-op case
+  in `TextArea.handleKey`, rather than falling through to plain
+  vertical movement (see below for what that was corrupting).
+  Re-verified with the same methodology that caught both earlier
+  bugs — a byte-exact comparison between a no-jump baseline and a
+  with-jump run of the identical keystrokes — and confirmed identical
+  this time. Also fixed two now-stale code comments in `cmd/9ed`
+  written during the earlier failed attempts, which had described the
+  bugs as fixed/absent before they actually were.
 - Bumped `tui` v0.3.0 → v0.3.1, which fixed `tui#18` (the async-
   ordering race noted below) — `Run` now resolves a widget-sourced
   `Cmd` (e.g. `OnCursorChange`'s callback) synchronously before

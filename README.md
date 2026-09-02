@@ -17,7 +17,8 @@ Status (`v0.1.2` plus unreleased work): M0–M12 implemented — deck
 segmentation for all six target languages (Markdown, Go, Bash, C/C++,
 Haskell, `kyu`, plus a plain-text fallback for anything else), Nav/Edit
 mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/cross-card-jump
-navigation, a Nav-mode typeahead filter, precise go-to-line, line
+navigation (restoring each card's cursor position across a jump), a
+Nav-mode typeahead filter, precise go-to-line, line
 numbers, atomic save, a runtime light/dark theme toggle (`t`), a 9P
 server surface for a running buffer with a writable `/cards/<n>/body`,
 namespace-aware open/save (see
@@ -131,7 +132,7 @@ for the (now-resolved, as of `9sh` v0.3.1) gap this uncovered.
 |---|---|
 | `github.com/sandgorgon/9p` | v0.7.1 |
 | `github.com/sandgorgon/9sh` | v0.4.0 |
-| `github.com/sandgorgon/tui` | v0.3.1 |
+| `github.com/sandgorgon/tui` | v0.4.0 |
 
 `9vcs` and `9auth` are siblings in the same Plan-9-flavored family but are
 not 9ed dependencies — see [Why no `9auth`](#why-no-9auth) above.

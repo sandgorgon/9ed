@@ -162,15 +162,16 @@ func segmenterFor(path string) deck.Segmenter {
 
 // model is the editor's business state: which mode (Nav/Edit), which
 // card is selected, and any edited card content. Everything else
-// (TextArea's own cursor/selection/undo-redo, List's scroll offset) is
+// (TextArea's own selection/undo-redo, List's scroll offset) is
 // ephemeral widget-retained state, not tracked here — see
-// tui/docs/DESIGN.md §3.1. Two attempts at mirroring cursor position
-// into a per-card map (to restore it across jumpCard's remount) have
-// both been made and reverted after live testing — see jumpCard's own
-// doc comment in insert.go for why, and
-// upstream-specs/tui-textarea-cursor-readback-sync.md /
-// tui-textarea-ctrl-updown-not-claimed.md for the two distinct tui
-// gaps found along the way.
+// tui/docs/DESIGN.md §3.1 — with one deliberate exception: cursor
+// position is mirrored into cursorPos via tui's OnCursorChange,
+// specifically so it survives a remount (a cross-card jump) that would
+// otherwise silently drop it. Two earlier attempts at this were made
+// and reverted after live testing found two distinct tui bugs — see
+// jumpCard's own doc comment in insert.go for the full history. Both
+// are now fixed (tui v0.3.1 / v0.4.0); re-verified live before
+// re-landing this a third time.
 type model struct {
 	path  string
 	src   []byte // original file content, never mutated except by a completed Save
@@ -213,6 +214,21 @@ type model struct {
 	// default cursor position.
 	gotoLineCursor *int
 	gotoLineCard   int
+
+	// cursorPos remembers each card's last-known cursor position (a
+	// rune offset into its body, the same unit InitialCursor/
+	// OnCursorChange both use), captured continuously via editView's
+	// TextArea OnCursorChange — so leaving a card via jumpCard (or Esc
+	// to Nav and back via Enter) and returning to it restores where you
+	// were, instead of always landing at the default start position.
+	// Keyed by card index, same convention and same insertCard/
+	// removeCard-driven reindexing as m.edited (see shiftKeysForInsert/
+	// shiftKeysForRemove) — deck.Card has no stabler identity within
+	// one unsaved session. Cleared wholesale on a successful Save,
+	// since indices are meaningless once the deck resegments; unlike
+	// gotoLineCursor, never cleared by an individual mode transition —
+	// this is meant to persist across exactly those.
+	cursorPos map[int]int
 
 	// edited holds a card's current text once it diverges from its
 	// original src[Span[0]:Span[1]] slice — sparse, since most cards in
@@ -404,6 +420,13 @@ const navPageSize = 10
 type enterEditMsg struct{}
 type editChangedMsg struct{ value string }
 
+// cursorMovedMsg is produced by editView's TextArea OnCursorChange
+// whenever the cursor moves for any reason — a navigation key, a mouse
+// click, or an edit that relocates it, not just on content change like
+// editChangedMsg — so m.cursorPos can track it continuously, not just
+// at the moment of leaving a card.
+type cursorMovedMsg struct{ offset int }
+
 // editNoteMsg is produced by listEvent on 'n' in Nav mode — the
 // note-editing counterpart to enterEditMsg. noteChangedMsg is produced
 // by noteView's TextArea OnChange, the counterpart to editChangedMsg.
@@ -488,6 +511,12 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
 		m.view.publish(m.path, m.src, m.cards, m.edited)
+
+	case cursorMovedMsg:
+		if m.cursorPos == nil {
+			m.cursorPos = make(map[int]int)
+		}
+		m.cursorPos[m.cursor] = v.offset
 
 	case editNoteMsg:
 		m.cancelPendingNav()
@@ -586,7 +615,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			break
 		}
 		m.saveErr = ""
-		m.src, m.cards, m.edited, m.noteEdited = v.src, v.cards, nil, nil
+		m.src, m.cards, m.edited, m.noteEdited, m.cursorPos = v.src, v.cards, nil, nil, nil
 		m.refs = deck.References(m.src, m.cards)
 		if m.cursor >= len(m.cards) {
 			m.cursor = max(len(m.cards)-1, 0)
@@ -639,17 +668,13 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				return m, nil
 			}
 			// Ctrl+Up/Down jump to the previous/next card's body
-			// without leaving Edit mode — this still reaches Update
-			// and jumpCard runs correctly. What's NOT true (an earlier
-			// version of this comment claimed it was, incorrectly):
-			// TextArea's own handleKey does NOT ignore Ctrl+Up/Down —
-			// unlike Ctrl+Left/Right/Home/End, Up/Down have no
-			// ctrl-guarded case, so they fall through to the plain
-			// Up/Down case and move the widget's own cursor too, as an
-			// unwanted side effect. Harmless as long as nothing reads
-			// that side effect back out — see jumpCard's own doc
-			// comment for why that's exactly what blocks restoring
-			// cursor position across this jump.
+			// without leaving Edit mode — confirmed free of TextArea's
+			// own key claims as of tui v0.4.0 (widget/textarea.go's
+			// handleKey has an explicit no-op case for Ctrl+Up/Down,
+			// fixing a real bug in earlier tui versions where they fell
+			// through to plain Up/Down and moved the widget's own
+			// cursor too — see jumpCard's own doc comment for the full
+			// history), so, like plain Esc, they reach here unclaimed.
 			if v.Mod&input.ModCtrl != 0 && v.Key == input.KeyDown {
 				m.jumpCard(1)
 				return m, nil
@@ -791,12 +816,22 @@ func (m *model) editView() tui.Node {
 		highlights = goHighlights(body, theme)
 	}
 
-	// gotoLineCursor only applies to the specific card it was computed
-	// for (see goto.go's goToLine) — every other edit-mode-entry path
-	// clears it, but the card-match check here is the actual guard.
+	// gotoLineCursor (an explicit {n}G target — see goto.go's goToLine)
+	// takes priority over a remembered cursorPos when both apply to
+	// this card: a deliberate, specific request beats "restore where I
+	// happened to be." Every other edit-mode-entry path clears
+	// gotoLineCursor, but the card-match check here is the actual
+	// guard. Otherwise, cursorPos restores the last-known position for
+	// a card being revisited (jumpCard, or Esc-to-Nav-and-back)
+	// instead of always defaulting to the start.
 	var initialCursor *int
-	if m.gotoLineCursor != nil && m.gotoLineCard == m.cursor {
+	switch {
+	case m.gotoLineCursor != nil && m.gotoLineCard == m.cursor:
 		initialCursor = m.gotoLineCursor
+	default:
+		if pos, ok := m.cursorPos[m.cursor]; ok {
+			initialCursor = &pos
+		}
 	}
 
 	// Gutter shows the file-absolute line number (not restarting at 1
@@ -811,12 +846,13 @@ func (m *model) editView() tui.Node {
 	}
 
 	textarea := widget.TextArea(widget.TextAreaOptions{
-		Theme:         theme,
-		Value:         body,
-		Highlights:    highlights,
-		InitialCursor: initialCursor,
-		Gutter:        gutter,
-		OnChange:      func(v string) tui.Msg { return editChangedMsg{value: v} },
+		Theme:          theme,
+		Value:          body,
+		Highlights:     highlights,
+		InitialCursor:  initialCursor,
+		Gutter:         gutter,
+		OnChange:       func(v string) tui.Msg { return editChangedMsg{value: v} },
+		OnCursorChange: func(offset int) tui.Msg { return cursorMovedMsg{offset: offset} },
 		// A ReleaseKey distinct from plain Esc — see the input.KeyEvent
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.

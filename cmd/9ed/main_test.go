@@ -147,6 +147,40 @@ func TestPageUpDown(t *testing.T) {
 	})
 }
 
+func TestCursorMovedMsg(t *testing.T) {
+	m := newNavTestModel(3)
+	m.cursor = 1
+
+	mm, _ := m.Update(cursorMovedMsg{offset: 5})
+	m = mm.(*model)
+	if got := m.cursorPos[1]; got != 5 {
+		t.Errorf("cursorPos[1] = %d, want 5", got)
+	}
+
+	// A later move on a different card records under that card's own
+	// index, not overwriting card 1's remembered position.
+	m.cursor = 2
+	mm, _ = m.Update(cursorMovedMsg{offset: 9})
+	m = mm.(*model)
+	if got := m.cursorPos[1]; got != 5 {
+		t.Errorf("cursorPos[1] = %d, want unchanged 5", got)
+	}
+	if got := m.cursorPos[2]; got != 9 {
+		t.Errorf("cursorPos[2] = %d, want 9", got)
+	}
+}
+
+func TestSaveDoneMsgClearsCursorPos(t *testing.T) {
+	m := newNavTestModel(2)
+	m.cursorPos = map[int]int{0: 3, 1: 7}
+
+	mm, _ := m.Update(saveDoneMsg{src: []byte("x"), cards: []deck.Card{{Kind: "func"}}})
+	m = mm.(*model)
+	if m.cursorPos != nil {
+		t.Errorf("cursorPos = %v, want nil after a successful save (indices realign on resegment)", m.cursorPos)
+	}
+}
+
 // TestCardFirstLine covers the line-number math editView's Gutter closure
 // relies on to show file-absolute line numbers — tested directly rather
 // than needing to render through tui to verify.

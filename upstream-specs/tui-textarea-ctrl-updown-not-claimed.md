@@ -1,6 +1,13 @@
 # tui: TextArea's handleKey treats Ctrl+Up/Down as plain Up/Down, unlike every other Ctrl-modified movement key
 
-**Status:** Filed, not yet resolved.
+**Status:** Resolved in `tui` v0.4.0 — `Ctrl+Up`/`Ctrl+Down` (and,
+extended to the same gap, `Ctrl+PgUp`/`Ctrl+PgDown`) are now an
+explicit no-op case in `handleKey`, checked before the plain
+movement case, so they're genuinely left unclaimed rather than
+falling through. Adopted in 9ed and re-verified live: a fresh
+baseline-vs-jump byte comparison came back identical — this was the
+last of the two gaps blocking cross-card cursor restoration, and the
+feature is now shipped (see `cmd/9ed/insert.go`'s `jumpCard`).
 
 **Issue:** https://github.com/sandgorgon/tui/issues/20
 

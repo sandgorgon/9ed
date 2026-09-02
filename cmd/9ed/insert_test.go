@@ -64,10 +64,10 @@ func TestInsertCard(t *testing.T) {
 
 	// Regression: noteEdited was added (Note mode) without ever being
 	// wired into insertCard/removeCard's key-shifting, unlike edited —
-	// a latent bug caught while adding (and, after two separate tui
-	// bugs, subsequently backing out twice) a third such map.
-	t.Run("shifts noteEdited the same way as edited", func(t *testing.T) {
-		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true}}
+	// a latent bug caught while adding cursorPos, which needs the exact
+	// same treatment.
+	t.Run("shifts noteEdited and cursorPos the same way as edited", func(t *testing.T) {
+		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true}, cursorPos: map[int]int{0: 3, 1: 7}}
 		m.insertCard(1, 5)
 		if !m.noteEdited[0] {
 			t.Error("noteEdited[0] should be unchanged")
@@ -77,6 +77,15 @@ func TestInsertCard(t *testing.T) {
 		}
 		if !m.noteEdited[2] {
 			t.Error("noteEdited[2] should be shifted-up from 1")
+		}
+		if m.cursorPos[0] != 3 {
+			t.Errorf("cursorPos[0] = %d, want unchanged 3", m.cursorPos[0])
+		}
+		if _, ok := m.cursorPos[1]; ok {
+			t.Error("cursorPos[1] should have shifted away")
+		}
+		if m.cursorPos[2] != 7 {
+			t.Errorf("cursorPos[2] = %d, want shifted-up 7", m.cursorPos[2])
 		}
 	})
 }
@@ -112,8 +121,8 @@ func TestRemoveCard(t *testing.T) {
 		}
 	})
 
-	t.Run("shifts noteEdited the same way as edited", func(t *testing.T) {
-		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true, 2: true}}
+	t.Run("shifts noteEdited and cursorPos the same way as edited", func(t *testing.T) {
+		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true, 2: true}, cursorPos: map[int]int{0: 1, 1: 2, 2: 3}}
 		m.removeCard(1)
 		if !m.noteEdited[0] {
 			t.Error("noteEdited[0] should be unchanged")
@@ -123,6 +132,15 @@ func TestRemoveCard(t *testing.T) {
 		}
 		if m.noteEdited[2] {
 			t.Error("noteEdited[2] should be gone after the shift")
+		}
+		if m.cursorPos[0] != 1 {
+			t.Errorf("cursorPos[0] = %d, want unchanged 1", m.cursorPos[0])
+		}
+		if m.cursorPos[1] != 3 {
+			t.Errorf("cursorPos[1] = %d, want shifted-down 3", m.cursorPos[1])
+		}
+		if _, ok := m.cursorPos[2]; ok {
+			t.Error("cursorPos[2] should be gone after the shift")
 		}
 	})
 

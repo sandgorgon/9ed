@@ -35,14 +35,15 @@ func (m *model) insertCard(idx, pos int) {
 
 	m.edited = shiftKeysForInsert(m.edited, idx)
 	m.noteEdited = shiftKeysForInsert(m.noteEdited, idx)
+	m.cursorPos = shiftKeysForInsert(m.cursorPos, idx)
 }
 
 // shiftKeysForInsert reindexes an index-keyed per-card map to account
 // for insertCard splicing a new card in at idx: every key at or above
 // idx moves up by one, the same shift m.cards itself just got. Shared
-// by every such map (m.edited, m.noteEdited) — each needs identical
-// reindexing, just over a different value type. A nil/empty m is
-// returned unchanged rather than allocating a fresh empty map.
+// by every such map (m.edited, m.noteEdited, m.cursorPos) — each needs
+// identical reindexing, just over a different value type. A nil/empty
+// m is returned unchanged rather than allocating a fresh empty map.
 func shiftKeysForInsert[V any](m map[int]V, idx int) map[int]V {
 	if len(m) == 0 {
 		return m
@@ -91,32 +92,36 @@ func (m *model) abandonEmptyInsert() {
 // before the removed index, so the normal -1 from that same unchanged
 // cursor still lands correctly on what was originally at idx-1.
 //
-// Restoring the outgoing card's cursor position on a later return has
-// been attempted twice (tui v0.3.0's OnCursorChange, then again after
-// v0.3.1) and reverted both times after live testing — not for a lack
-// of trying, and not a 9ed design choice:
-//  1. v0.3.0: OnCursorChange delivered asynchronously (tui's Cmd/
+// Restoring the outgoing card's cursor position on a later return (see
+// model.cursorPos) took three attempts across two tui releases before
+// it actually worked, both earlier ones caught by live testing (a
+// byte-exact comparison against a no-jump baseline, not just eyeballing
+// a tmux capture) rather than assumed correct once the code compiled:
+//  1. tui v0.3.0's OnCursorChange delivered asynchronously (tui's Cmd/
 //     channel pipeline), so this synchronous cursor-index change could
 //     run — and the next card's TextArea could mount — before the last
 //     pending position update for the card being left had arrived.
 //     Filed tui#18; fixed in tui v0.3.1 (Run now resolves a
 //     widget-sourced Cmd synchronously before advancing to the next
 //     input event).
-//  2. v0.3.1, re-tested: the same race is gone, but a second, distinct
-//     bug surfaced immediately behind it — confirmed by instrumenting
-//     both sides and reading widget/textarea.go's handleKey directly:
-//     unlike Ctrl+Left/Right/Home/End (each has an explicit ctrl-
-//     guarded case checked first), Ctrl+Up/Down have no such guard, so
-//     they fall through to the plain Up/Down case and move the
-//     widget's own cursor too. Since the raw KeyEvent that triggers
-//     this jump is *also* delivered to the focused widget (tui always
-//     does both), the freshly-remounted destination card's widget
-//     immediately "eats" that same keystroke as an extra vertical
-//     move right after mounting with the correct restored position —
-//     overwriting it before the user ever sees it. See
-//     upstream-specs/tui-textarea-ctrl-updown-not-claimed.md.
+//  2. v0.3.1, re-tested: the async race was gone, but a second,
+//     distinct bug surfaced immediately behind it — unlike
+//     Ctrl+Left/Right/Home/End (each has an explicit ctrl-guarded case
+//     checked first), widget/textarea.go's handleKey had no such guard
+//     for Up/Down, so Ctrl+Up/Down fell through to the plain Up/Down
+//     case and moved the widget's own cursor too — and since the raw
+//     KeyEvent that triggers this jump is *also* delivered to the
+//     focused widget (tui always does both), the freshly-remounted
+//     destination card's widget immediately "ate" that same keystroke
+//     as an extra vertical move right after mounting with the correct
+//     restored position, overwriting it before the user ever saw it.
+//     Filed tui#20; fixed in tui v0.4.0 (Ctrl+Up/Down/PgUp/PgDown are
+//     now an explicit no-op case, left genuinely unclaimed).
+//  3. tui v0.4.0, re-tested: both bugs confirmed fixed — a fresh
+//     baseline-vs-jump comparison came back byte-identical.
 //
-// Don't re-attempt this without checking that spec's status first.
+// See upstream-specs/tui-textarea-cursor-readback-sync.md and
+// tui-textarea-ctrl-updown-not-claimed.md for the full writeups.
 func (m *model) jumpCard(delta int) {
 	m.gotoLineCursor = nil
 	abandoning := m.isEmptyInsert(m.cursor)
@@ -144,6 +149,7 @@ func (m *model) removeCard(idx int) {
 	m.cards = append(m.cards[:idx], m.cards[idx+1:]...)
 	m.edited = shiftKeysForRemove(m.edited, idx)
 	m.noteEdited = shiftKeysForRemove(m.noteEdited, idx)
+	m.cursorPos = shiftKeysForRemove(m.cursorPos, idx)
 }
 
 // shiftKeysForRemove is shiftKeysForInsert's inverse for removeCard:
