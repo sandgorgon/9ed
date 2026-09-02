@@ -24,7 +24,9 @@ whole-file confirm-replace (see [Search and
 replace](#search-and-replace) below), directory browsing for bare
 `9ed`/`9ed <dir>` invocation (see [Directory
 browsing](#directory-browsing) below), Acme-style `path:line` plumbing
-(see [Plumbing](#plumbing) below), precise go-to-line, line numbers,
+(see [Plumbing](#plumbing) below), a per-card revert for unsaved body
+edits (`u`, see [Reverting unsaved edits](#reverting-unsaved-edits)
+below), precise go-to-line, line numbers,
 atomic save, a runtime light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
 `/goto`, namespace-aware open/save (see
@@ -117,6 +119,17 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Reverting unsaved edits
+
+`u` from Nav mode discards the current card's unsaved body edits,
+restoring it to how it looked before this session touched it — the
+per-card counterpart to `TextArea`'s own undo/redo, which is scoped to
+one mounted widget instance and lost the moment you leave a card. One
+step back only, no redo, and it resets on Save just like the underlying
+edit itself: it's a session convenience, not version history, which is
+deliberately left to `9vcs` rather than improvised here. Scoped to
+body content only; a note or badge is untouched.
 
 ## Plumbing
 

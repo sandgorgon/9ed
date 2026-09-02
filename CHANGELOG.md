@@ -53,6 +53,15 @@
   `goToLine`; `/goto` mirrors `/cards/<n>/body`'s accumulate-then-
   commit-on-`Close` shape exactly.
 
+- `cmd/9ed`: added `u` in Nav mode to revert a card's unsaved body
+  edits (item 6, "undo is per-card and ephemeral"). `TextArea`'s own
+  undo/redo has no exported hook to extend past one mounted widget
+  instance, so this lives in Nav mode instead, one step back only, and
+  resets on Save like `m.edited` itself — a session convenience, not
+  version history. Turned out to need no new state at all: `cardBody`'s
+  existing no-entry fallback already *is* "how this card looked before
+  any edits this session," so reverting is just clearing the entry.
+
 ## 0.2.0 - 2026-09-02
 
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now
