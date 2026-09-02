@@ -3,10 +3,11 @@
 // of editing it as an undifferentiated block of lines. Nav mode navigates
 // the card list; Enter focuses the current card in Edit mode for direct
 // text editing, 'n' focuses it in Note mode instead to edit a markdown
-// annotation for it (see package notes), Esc returns to Nav from either.
-// Ctrl+S reassembles every card back into the file and writes it
-// atomically, alongside the file's .9an note sidecar if any note
-// changed; 't' toggles the light/dark theme.
+// annotation for it (see package notes), Esc returns to Nav from either;
+// 'f'/'r' directly toggle the todo/needs-review flags on the current
+// card without leaving Nav. Ctrl+S reassembles every card back into the
+// file and writes it atomically, alongside the file's .9an sidecar if
+// any note or flag changed; 't' toggles the light/dark theme.
 //
 // Every running buffer also serves its own state over 9P (see fs9p.go) —
 // a Unix-domain-socket server scriptable from kyu or any shell — and,
@@ -52,6 +53,8 @@ Nav mode:
   /            filter cards
   enter        edit current card
   n            edit current card's note
+  f            toggle 'todo' flag on current card
+  r            toggle 'needs-review' flag on current card
   o / O        insert card below / above
   t            toggle light/dark theme
   ^s           save
@@ -221,11 +224,11 @@ type model struct {
 	notesFile *notes.Sidecar
 
 	// noteEdited marks which cards (by cursor index, same convention as
-	// m.edited) have had their note touched this session — separate
-	// from m.edited because a note change never affects reassemble/src
-	// at all, only whether Save needs to rewrite the .9an sidecar.
-	// Feeds the same '*'/dirty indicators m.edited does (see isDirty),
-	// and is cleared alongside it on a successful Save.
+	// m.edited) have had their .9an entry touched this session — a note
+	// edit or a flag toggle, either one — separate from m.edited because
+	// neither affects reassemble/src at all, only whether Save needs to
+	// rewrite the sidecar. Feeds the same dirty indicator m.edited does
+	// (see isDirty), and is cleared alongside it on a successful Save.
 	noteEdited map[int]bool
 
 	// refs is deck.References(src, cards): for card i, the indices of
@@ -318,13 +321,18 @@ func (m *model) dirtyMark() string {
 	return ""
 }
 
-// finalizeNoteEdit drops the current card's note entirely if editing
-// left it empty, rather than persisting a blank "# kind: title" header
-// with nothing under it — mirrors abandonEmptyInsert's "don't keep an
-// empty placeholder" choice for a card inserted and then left untouched.
+// finalizeNoteEdit drops the current card's sidecar entry entirely if
+// editing left its note empty AND it has no flag set either — rather
+// than persisting a blank "# kind: title" header with nothing under it
+// — mirroring abandonEmptyInsert's "don't keep an empty placeholder"
+// choice for a card inserted and then left untouched. Checking Annotated
+// rather than just an empty body matters once flags exist: a
+// flagged-but-note-less card must survive leaving Note mode with an
+// empty note, not have its flag silently wiped along with the blank
+// body.
 func (m *model) finalizeNoteEdit() {
 	card := m.cards[m.cursor]
-	if body, ok := m.notesFile.Get(card.Kind, card.Title); ok && body == "" {
+	if !m.notesFile.Annotated(card.Kind, card.Title) {
 		m.notesFile.Delete(card.Kind, card.Title)
 	}
 }
@@ -395,6 +403,11 @@ type editChangedMsg struct{ value string }
 // by noteView's TextArea OnChange, the counterpart to editChangedMsg.
 type editNoteMsg struct{}
 type noteChangedMsg struct{ value string }
+
+// toggleFlagMsg is produced by listEvent on 'f'/'r' in Nav mode —
+// toggling a user-authored badge (see flagTodo/flagNeedsReview) is a
+// direct one-key action, not a mode to enter, unlike notes.
+type toggleFlagMsg struct{ flag string }
 
 func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	switch v := msg.(type) {
@@ -488,6 +501,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			m.noteEdited = make(map[int]bool)
 		}
 		m.noteEdited[m.cursor] = true
+
+	case toggleFlagMsg:
+		// Same orphaning risk as editNoteMsg's guard: a not-yet-saved
+		// placeholder's (Kind, Title) is about to change on the next
+		// Save.
+		if len(m.cards) > 0 && m.cards[m.cursor].Kind != newCardKind {
+			card := m.cards[m.cursor]
+			m.notesFile.ToggleFlag(card.Kind, card.Title, v.flag)
+			if m.noteEdited == nil {
+				m.noteEdited = make(map[int]bool)
+			}
+			m.noteEdited[m.cursor] = true
+		}
 
 	case insertMsg:
 		m.cancelPendingNav()
@@ -672,7 +698,7 @@ func (m *model) navView() tui.Node {
 	if m.searching {
 		help = tui.Text(fmt.Sprintf("/%s  (%d match%s)  —  enter: go   esc: cancel", m.query, len(indices), pluralS(len(indices))), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   n: note   o/O: insert   ^s: save   t: theme   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: filter   enter: edit   n: note   f/r: flag   o/O: insert   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -690,19 +716,43 @@ const (
 	dirtyGlyph = "●" // unsaved body or note change (replaces the old plain '*')
 	noteGlyph  = "✎" // this card has a .9an note attached
 	refGlyph   = "↩" // followed by a count: N other cards mention this one's Name
+
+	todoGlyph        = "⚑" // this card is flagged flagTodo
+	needsReviewGlyph = "⚠" // this card is flagged flagNeedsReview
+)
+
+// flagTodo and flagNeedsReview are the only user-authored badges 9ed
+// knows about — a small, fixed vocabulary (package notes itself has no
+// opinion on flag names; these are cmd/9ed's own choice). Toggled from
+// Nav mode with 'f'/'r' (see listEvent), same guard against an unsaved
+// insert placeholder that editNoteMsg uses, for the same orphaning
+// reason.
+const (
+	flagTodo        = "todo"
+	flagNeedsReview = "needs-review"
 )
 
 // cardBadges returns a compact, space-prefixed suffix noting card i's
-// system-derived annotations for Nav mode's list line — whether it has
-// a note, and how many other cards mention it (see deck.References) —
-// or "" when neither applies. Purely informational: nothing here
-// affects navigation or editing. User-authored badges (an explicit
-// "todo"/"needs-review" flag, distinct from a note's own body) aren't
-// wired up yet — no UI exists to set one.
+// annotations for Nav mode's list line — the user-authored flags (see
+// flagTodo/flagNeedsReview), then whether it has a note, then how many
+// other cards mention it (see deck.References) — or "" when none apply.
+// Purely informational: nothing here affects navigation or editing.
+// Flags are listed first since they're a deliberate signal the user set
+// ("pay attention to this"), ahead of the two passive, system-computed
+// ones.
 func (m *model) cardBadges(i int) string {
 	c := m.cards[i]
 	badges := ""
-	if _, ok := m.notesFile.Get(c.Kind, c.Title); ok {
+	if m.notesFile.HasFlag(c.Kind, c.Title, flagTodo) {
+		badges += "  " + todoGlyph
+	}
+	if m.notesFile.HasFlag(c.Kind, c.Title, flagNeedsReview) {
+		badges += "  " + needsReviewGlyph
+	}
+	// Get's ok reports "an entry exists," which is now true for a
+	// flags-only, body-less entry too (see ToggleFlag) — the note glyph
+	// specifically needs a real, non-empty body.
+	if body, ok := m.notesFile.Get(c.Kind, c.Title); ok && body != "" {
 		badges += "  " + noteGlyph
 	}
 	if i < len(m.refs) && len(m.refs[i]) > 0 {
@@ -834,6 +884,10 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return enterEditMsg{}
 	case ke.Rune == 'n':
 		return editNoteMsg{}
+	case ke.Rune == 'f':
+		return toggleFlagMsg{flag: flagTodo}
+	case ke.Rune == 'r':
+		return toggleFlagMsg{flag: flagNeedsReview}
 	case ke.Rune == 'o':
 		return insertBelow
 	case ke.Rune == 'O':

@@ -51,6 +51,67 @@ func TestEditNoteMsg(t *testing.T) {
 	})
 }
 
+func TestToggleFlagMsg(t *testing.T) {
+	t.Run("toggles a flag on the current card and marks it dirty", func(t *testing.T) {
+		m := noteTestModel()
+		m.cursor = 1
+		mm, _ := m.Update(toggleFlagMsg{flag: flagTodo})
+		m = mm.(*model)
+
+		if !m.notesFile.HasFlag("func", "func Foo() error", flagTodo) {
+			t.Error("expected flagTodo to be set")
+		}
+		if !m.noteEdited[1] {
+			t.Error("expected noteEdited[1] = true")
+		}
+		if !m.isDirty(1) {
+			t.Error("expected isDirty(1) = true after a flag toggle")
+		}
+	})
+
+	t.Run("toggling twice clears it again", func(t *testing.T) {
+		m := noteTestModel()
+		m.cursor = 1
+		mm, _ := m.Update(toggleFlagMsg{flag: flagTodo})
+		m = mm.(*model)
+		mm, _ = m.Update(toggleFlagMsg{flag: flagTodo})
+		m = mm.(*model)
+
+		if m.notesFile.HasFlag("func", "func Foo() error", flagTodo) {
+			t.Error("expected flagTodo to be cleared after toggling twice")
+		}
+	})
+
+	t.Run("refuses to toggle on an unsaved insert placeholder", func(t *testing.T) {
+		m := noteTestModel()
+		m.cards = append(m.cards, deck.Card{Kind: newCardKind, Title: ""})
+		m.cursor = 2
+		mm, _ := m.Update(toggleFlagMsg{flag: flagTodo})
+		m = mm.(*model)
+
+		if m.noteEdited[2] {
+			t.Error("expected no toggle to have happened on a newCardKind placeholder")
+		}
+	})
+
+	t.Run("a card with a flag and no note survives an empty Note-mode visit", func(t *testing.T) {
+		m := noteTestModel()
+		m.cursor = 1
+		mm, _ := m.Update(toggleFlagMsg{flag: flagTodo})
+		m = mm.(*model)
+
+		// Open Note mode, type nothing, leave — must not wipe the flag
+		// just because the body is (and stays) empty.
+		m.noteEditing = true
+		mm, _ = m.Update(input.KeyEvent{Key: input.KeyEsc})
+		m = mm.(*model)
+
+		if !m.notesFile.HasFlag("func", "func Foo() error", flagTodo) {
+			t.Error("expected flagTodo to survive an empty Note-mode visit")
+		}
+	})
+}
+
 func TestNoteChangedMsg(t *testing.T) {
 	m := noteTestModel()
 	m.cursor = 1

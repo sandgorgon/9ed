@@ -142,3 +142,147 @@ func TestMarshalEmptySidecar(t *testing.T) {
 		t.Errorf("Marshal() on an empty Sidecar = %q, want \"\"", got)
 	}
 }
+
+func TestToggleFlagOnAndOff(t *testing.T) {
+	s := New()
+	if s.HasFlag("func", "Foo", "todo") {
+		t.Fatal("HasFlag should start false")
+	}
+	s.ToggleFlag("func", "Foo", "todo")
+	if !s.HasFlag("func", "Foo", "todo") {
+		t.Error("expected HasFlag(todo) = true after toggling on")
+	}
+	s.ToggleFlag("func", "Foo", "todo")
+	if s.HasFlag("func", "Foo", "todo") {
+		t.Error("expected HasFlag(todo) = false after toggling back off")
+	}
+}
+
+func TestToggleFlagCreatesABodylessEntry(t *testing.T) {
+	s := New()
+	s.ToggleFlag("func", "Foo", "todo")
+	if s.Len() != 1 {
+		t.Fatalf("Len() = %d, want 1", s.Len())
+	}
+	if body, ok := s.Get("func", "Foo"); !ok || body != "" {
+		t.Errorf("Get(func, Foo) = %q, %v, want \"\", true", body, ok)
+	}
+}
+
+func TestToggleFlagRemovesAnEntryLeftWithNoBodyAndNoFlags(t *testing.T) {
+	s := New()
+	s.ToggleFlag("func", "Foo", "todo")
+	s.ToggleFlag("func", "Foo", "todo") // back off — body was always empty
+	if s.Len() != 0 {
+		t.Errorf("Len() = %d, want 0 (entry should be gone, not left empty)", s.Len())
+	}
+}
+
+func TestToggleFlagKeepsAnEntryThatStillHasANote(t *testing.T) {
+	s := New()
+	s.Set("func", "Foo", "some note text")
+	s.ToggleFlag("func", "Foo", "todo")
+	s.ToggleFlag("func", "Foo", "todo") // flag off, but body remains
+	if body, ok := s.Get("func", "Foo"); !ok || body != "some note text" {
+		t.Errorf("Get(func, Foo) = %q, %v, want %q, true", body, ok, "some note text")
+	}
+}
+
+func TestSetPreservesExistingFlags(t *testing.T) {
+	s := New()
+	s.ToggleFlag("func", "Foo", "todo")
+	s.Set("func", "Foo", "now with a note")
+	if !s.HasFlag("func", "Foo", "todo") {
+		t.Error("expected the flag to survive a Set() body update")
+	}
+}
+
+func TestAnnotated(t *testing.T) {
+	s := New()
+	if s.Annotated("func", "Foo") {
+		t.Error("nothing recorded yet — Annotated should be false")
+	}
+	s.ToggleFlag("func", "Foo", "todo")
+	if !s.Annotated("func", "Foo") {
+		t.Error("a flag alone should count as Annotated")
+	}
+	s.ToggleFlag("func", "Foo", "todo")
+	if s.Annotated("func", "Foo") {
+		t.Error("no flag and no body left — Annotated should be false again")
+	}
+	s.Set("func", "Bar", "a note")
+	if !s.Annotated("func", "Bar") {
+		t.Error("a non-empty body alone should count as Annotated")
+	}
+}
+
+func TestAnnotatedAndHasFlagOnNilSidecar(t *testing.T) {
+	var s *Sidecar
+	if s.Annotated("func", "Foo") {
+		t.Error("nil.Annotated should be false")
+	}
+	if s.HasFlag("func", "Foo", "todo") {
+		t.Error("nil.HasFlag should be false")
+	}
+}
+
+func TestParseFlagsLine(t *testing.T) {
+	src := "# func: Foo\n" +
+		"flags: todo, needs-review\n" +
+		"the note body\n"
+	s := Parse([]byte(src))
+	if !s.HasFlag("func", "Foo", "todo") || !s.HasFlag("func", "Foo", "needs-review") {
+		t.Error("expected both todo and needs-review to be set")
+	}
+	if body, _ := s.Get("func", "Foo"); body != "the note body" {
+		t.Errorf("body = %q, want %q (the flags line must not become part of it)", body, "the note body")
+	}
+}
+
+func TestParseFlaglessEntryStillWorks(t *testing.T) {
+	// A sidecar written before flags existed — no "flags:" line at all.
+	src := "# func: Foo\nplain body, no flags line\n"
+	s := Parse([]byte(src))
+	if s.HasFlag("func", "Foo", "todo") {
+		t.Error("expected no flags")
+	}
+	if body, _ := s.Get("func", "Foo"); body != "plain body, no flags line" {
+		t.Errorf("body = %q, want the whole first line kept", body)
+	}
+}
+
+func TestParseFlaglessEntryWithNoBodyAtAll(t *testing.T) {
+	// A card with only a flag, no note text — the flags line is
+	// immediately followed by the next heading or EOF.
+	src := "# func: Foo\nflags: todo\n"
+	s := Parse([]byte(src))
+	if !s.HasFlag("func", "Foo", "todo") {
+		t.Error("expected todo to be set")
+	}
+	if body, ok := s.Get("func", "Foo"); !ok || body != "" {
+		t.Errorf("Get(func, Foo) = %q, %v, want \"\", true", body, ok)
+	}
+}
+
+func TestMarshalFlagsAreSortedForDeterminism(t *testing.T) {
+	s := New()
+	s.ToggleFlag("func", "Foo", "needs-review")
+	s.ToggleFlag("func", "Foo", "todo")
+	want := "# func: Foo\nflags: needs-review, todo\n"
+	if got := string(s.Marshal()); got != want {
+		t.Errorf("Marshal() = %q, want %q", got, want)
+	}
+}
+
+func TestFlagsRoundTrip(t *testing.T) {
+	src := "# func: Foo\n" +
+		"flags: needs-review, todo\n" +
+		"a note too\n" +
+		"\n" +
+		"# func: Bar\n" +
+		"flags: todo\n"
+	s := Parse([]byte(src))
+	if got := string(s.Marshal()); got != src {
+		t.Errorf("round trip mismatch:\ngot:\n%q\nwant:\n%q", got, src)
+	}
+}

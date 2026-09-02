@@ -229,6 +229,31 @@ func TestCardBadges(t *testing.T) {
 			t.Errorf("cardBadges(0) = %q, want %q", got, want)
 		}
 	})
+
+	t.Run("a flagged card shows the matching glyph", func(t *testing.T) {
+		sc := notes.New()
+		sc.ToggleFlag("func", "func Foo() error", flagTodo)
+		m := &model{cards: cards, notesFile: sc}
+		want := "  " + todoGlyph
+		if got := m.cardBadges(0); got != want {
+			t.Errorf("cardBadges(0) = %q, want %q", got, want)
+		}
+		if got := m.cardBadges(1); got != "" {
+			t.Errorf("cardBadges(1) = %q, want \"\" (not flagged)", got)
+		}
+	})
+
+	t.Run("flags render before note/refs badges, both flags together", func(t *testing.T) {
+		sc := notes.New()
+		sc.ToggleFlag("func", "func Foo() error", flagNeedsReview)
+		sc.ToggleFlag("func", "func Foo() error", flagTodo)
+		sc.Set("func", "func Foo() error", "a note too")
+		m := &model{cards: cards, notesFile: sc, refs: [][]int{{1}, nil}}
+		want := "  " + todoGlyph + "  " + needsReviewGlyph + "  " + noteGlyph + "  " + refGlyph + " 1"
+		if got := m.cardBadges(0); got != want {
+			t.Errorf("cardBadges(0) = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestListEventNavKeys(t *testing.T) {
