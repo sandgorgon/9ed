@@ -58,6 +58,7 @@ Nav mode:
   n            edit current card's note
   f            toggle 'todo' flag on current card
   r            toggle 'needs-review' flag on current card
+  u            revert current card's unsaved body edits
   o / O        insert card below / above
   t            toggle light/dark theme
   ^s           save
@@ -419,6 +420,37 @@ func (m *model) setEdited(i int, value string) {
 	m.edited[i] = value
 }
 
+// revertCard discards card i's unsaved body edits — 'u' from Nav mode,
+// backlog item 6 ("undo is per-card and ephemeral"). TextArea's own
+// undo/redo is scoped to one mounted widget instance and fully private
+// (no exported hook — same "no widget in this library returns a
+// handle" constraint the tui maintainer stated declining tui#18's
+// query-method half), so it can't be extended to survive leaving a
+// card; this is a deliberately simpler, coarser fix at the model level
+// instead of trying to graft a second undo system onto Edit mode.
+//
+// Not a multi-step undo stack — one step only, confirmed with the
+// user: reverting always restores the card to what cardBody already
+// falls back to once m.edited has no entry for it (the original
+// src slice, or the just-saved content if this is a post-Save edit —
+// see saveDoneMsg's handling, which resyncs src/cards to match). That
+// fallback already *is* "how this card looked before any edits this
+// session," so reverting needs nothing more than clearing the entry —
+// no separate checkpoint snapshot to keep in sync. A no-op if the card
+// has no body edit (note-only edits and flags are untouched; this is
+// scoped to body content, not the sidecar). Resets on Save naturally,
+// same as m.edited itself, rather than surviving across saves — this
+// is a per-session convenience, not the start of real version history,
+// which the project has deliberately left to 9vcs (see
+// [[feedback_no_git_projection]]) rather than improvising here.
+func (m *model) revertCard(i int) {
+	if _, dirty := m.edited[i]; !dirty {
+		return
+	}
+	delete(m.edited, i)
+	m.view.publish(m.path, m.src, m.cards, m.edited)
+}
+
 // isDirty reports whether card i has an unsaved change — either its
 // body (m.edited) or its note (m.noteEdited). Both feed the same
 // indicator: from the status line's point of view, either one means
@@ -550,6 +582,10 @@ type noteChangedMsg struct{ value string }
 // direct one-key action, not a mode to enter, unlike notes.
 type toggleFlagMsg struct{ flag string }
 
+// revertMsg is produced by listEvent on 'u' in Nav mode — see
+// model.revertCard.
+type revertMsg struct{}
+
 func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	switch v := msg.(type) {
 	case navMsg:
@@ -660,6 +696,11 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				m.noteEdited = make(map[int]bool)
 			}
 			m.noteEdited[m.cursor] = true
+		}
+
+	case revertMsg:
+		if len(m.cards) > 0 {
+			m.revertCard(m.cursor)
 		}
 
 	case insertMsg:
@@ -940,7 +981,7 @@ func (m *model) navView() tui.Node {
 	if m.searching {
 		help = tui.Text(m.searchHelpLine(indices), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   o/O: insert   ^s: save   t: theme   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -1158,6 +1199,8 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return toggleFlagMsg{flag: flagTodo}
 	case ke.Rune == 'r':
 		return toggleFlagMsg{flag: flagNeedsReview}
+	case ke.Rune == 'u':
+		return revertMsg{}
 	case ke.Rune == 'o':
 		return insertBelow
 	case ke.Rune == 'O':
