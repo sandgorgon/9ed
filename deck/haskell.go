@@ -32,6 +32,7 @@ func (HaskellSegmenter) Segment(src []byte) []Card {
 		declStart int // the item's own first line, for Title
 		kind      string
 		ident     string // leading identifier, for equation-grouping; "" if none
+		name      string // Card.Name; see hsCardName
 	}
 	var decls []decl
 
@@ -58,6 +59,7 @@ func (HaskellSegmenter) Segment(src []byte) []Card {
 						declStart: lineStart,
 						kind:      kind,
 						ident:     ident,
+						name:      hsCardName(trimmed, kind, ident),
 					})
 				}
 			}
@@ -82,7 +84,7 @@ func (HaskellSegmenter) Segment(src []byte) []Card {
 		if i+1 < len(decls) {
 			end = decls[i+1].spanStart
 		}
-		cards = append(cards, Card{Title: firstLine(src[d.declStart:]), Span: [2]int{d.spanStart, end}, Kind: d.kind})
+		cards = append(cards, Card{Title: firstLine(src[d.declStart:]), Span: [2]int{d.spanStart, end}, Kind: d.kind, Name: d.name})
 	}
 	return cards
 }
@@ -137,6 +139,29 @@ func hsLeadingIdent(trimmed []byte) string {
 		i++
 	}
 	return string(trimmed[:i])
+}
+
+// hsCardName returns the identifier a card unambiguously defines, given
+// its already-computed kind and leading identifier ident (from
+// hsLeadingIdent(trimmed)) — see Card.Name. For "decl" (a function/
+// value binding), ident already is the binding's own name. For "data"/
+// "type"/"newtype"/"class", the name is the field right after the
+// keyword — e.g. "Color" from "data Color = Red | Green | Blue". Empty
+// for "module"/"import" (no single defined identifier) and "instance"
+// (it associates an existing class with an existing type — naming
+// either would be a guess, not an extraction).
+func hsCardName(trimmed []byte, kind, ident string) string {
+	switch kind {
+	case "decl":
+		return ident
+	case "data", "type", "newtype", "class":
+		fields := bytes.Fields(trimmed)
+		if len(fields) < 2 {
+			return ""
+		}
+		return hsLeadingIdent(fields[1])
+	}
+	return ""
 }
 
 func hsIsIdentByte(b byte) bool {

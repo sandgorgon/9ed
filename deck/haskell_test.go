@@ -32,34 +32,44 @@ func TestHaskellSegmenter(t *testing.T) {
 		{
 			name: "a function binding with an indented where clause stays one card",
 			src:  "greet name = message\n  where\n    message = \"hi, \" ++ name\n",
-			want: []Card{{Kind: "decl", Title: "greet name = message"}},
+			want: []Card{{Kind: "decl", Title: "greet name = message", Name: "greet"}},
 		},
 		{
 			name: "multiple equations of the same binding stay one card",
 			src:  "fact 0 = 1\nfact n = n * fact (n - 1)\n",
-			want: []Card{{Kind: "decl", Title: "fact 0 = 1"}},
+			want: []Card{{Kind: "decl", Title: "fact 0 = 1", Name: "fact"}},
 		},
 		{
 			name: "a different binding after starts a new card",
 			src:  "fact 0 = 1\nfact n = n * fact (n - 1)\n\ndouble x = x * 2\n",
 			want: []Card{
-				{Kind: "decl", Title: "fact 0 = 1"},
-				{Kind: "decl", Title: "double x = x * 2"},
+				{Kind: "decl", Title: "fact 0 = 1", Name: "fact"},
+				{Kind: "decl", Title: "double x = x * 2", Name: "double"},
 			},
 		},
 		{
 			name: "leading comment attaches to the following binding",
 			src:  "-- double doubles its argument.\ndouble x = x * 2\n",
-			want: []Card{{Kind: "decl", Title: "double x = x * 2"}},
+			want: []Card{{Kind: "decl", Title: "double x = x * 2", Name: "double"}},
+		},
+		{
+			name: "an operator definition has no Name",
+			src:  "(<+>) x y = x + y + 1\n",
+			want: []Card{{Kind: "decl", Title: "(<+>) x y = x + y + 1"}},
 		},
 		{
 			name: "data, type, and class declarations",
 			src:  "data Color = Red | Green | Blue\n\ntype Name = String\n\nclass Greet a where\n  greet :: a -> String\n",
 			want: []Card{
-				{Kind: "data", Title: "data Color = Red | Green | Blue"},
-				{Kind: "type", Title: "type Name = String"},
-				{Kind: "class", Title: "class Greet a where"},
+				{Kind: "data", Title: "data Color = Red | Green | Blue", Name: "Color"},
+				{Kind: "type", Title: "type Name = String", Name: "Name"},
+				{Kind: "class", Title: "class Greet a where", Name: "Greet"},
 			},
+		},
+		{
+			name: "instance declarations have no Name",
+			src:  "instance Show Color where\n  show Red = \"red\"\n",
+			want: []Card{{Kind: "instance", Title: "instance Show Color where"}},
 		},
 		{
 			name: "a block comment's contents don't start a false boundary",
@@ -70,7 +80,7 @@ func TestHaskellSegmenter(t *testing.T) {
 			src: "{- this { is } not\ndouble x = x * 2\na real decl -}\ndouble x = x * 2\n",
 			want: []Card{
 				{Kind: "preamble", Title: "{- this { is } not"},
-				{Kind: "decl", Title: "double x = x * 2"},
+				{Kind: "decl", Title: "double x = x * 2", Name: "double"},
 			},
 		},
 	}
@@ -85,9 +95,9 @@ func TestHaskellSegmenter(t *testing.T) {
 				t.Fatalf("got %d cards, want %d: %+v", len(cards), len(tt.want), cards)
 			}
 			for i, c := range cards {
-				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title {
-					t.Errorf("card %d = {Kind: %q, Title: %q}, want {Kind: %q, Title: %q}",
-						i, c.Kind, c.Title, tt.want[i].Kind, tt.want[i].Title)
+				if c.Kind != tt.want[i].Kind || c.Title != tt.want[i].Title || c.Name != tt.want[i].Name {
+					t.Errorf("card %d = {Kind: %q, Title: %q, Name: %q}, want {Kind: %q, Title: %q, Name: %q}",
+						i, c.Kind, c.Title, c.Name, tt.want[i].Kind, tt.want[i].Title, tt.want[i].Name)
 				}
 			}
 		})
