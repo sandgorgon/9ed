@@ -23,10 +23,11 @@ jump-to-match/`Ctrl+N`/`Ctrl+P` walking, match highlighting, and
 whole-file confirm-replace (see [Search and
 replace](#search-and-replace) below), directory browsing for bare
 `9ed`/`9ed <dir>` invocation (see [Directory
-browsing](#directory-browsing) below), precise go-to-line, line
-numbers, atomic save, a runtime light/dark theme toggle (`t`), a 9P
-server surface for a running buffer with a writable `/cards/<n>/body`,
-namespace-aware open/save (see
+browsing](#directory-browsing) below), Acme-style `path:line` plumbing
+(see [Plumbing](#plumbing) below), precise go-to-line, line numbers,
+atomic save, a runtime light/dark theme toggle (`t`), a 9P server
+surface for a running buffer with a writable `/cards/<n>/body` and
+`/goto`, namespace-aware open/save (see
 [Namespace-aware file I/O](#namespace-aware-file-io) below), and card
 annotations — markdown notes plus `todo`/`needs-review` badges (see
 [Card annotations](#card-annotations) below). `9auth` is deliberately
@@ -116,6 +117,21 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Plumbing
+
+`9ed foo.go:42` opens `foo.go` and jumps straight to line 42 — the
+`path:line` convention compilers and `grep` already use for their own
+output, so pasting a build error's position as the argument just works.
+
+A running 9ed can also be plumbed into from outside: its 9P surface
+(see below) exposes a writable `/goto`. Writing a bare line number
+("`42`") jumps within whatever file is already open; writing
+`path:42` additionally checks that `path` names that same file. 9ed is
+still single-buffer, so it can never switch files — a mismatched path
+is rejected with a clear error rather than silently ignored, so a
+caller (a build script, another namespace client) can tell "jumped"
+from "rejected."
 
 ## Directory browsing
 

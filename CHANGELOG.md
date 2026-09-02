@@ -42,6 +42,17 @@
   text, which had fallen behind the previous entry's search/replace
   work.
 
+- `cmd/9ed`: added Acme-style plumbing. `9ed foo.go:42` opens at a
+  specific line, the `path:line` convention compilers/grep already use.
+  A new writable `/goto` (sibling to `/tag`/`/cards` in the 9P surface)
+  lets an already-running 9ed be plumbed into from outside — a bare
+  line number jumps within the open file, `path:line` additionally
+  requires `path` to name that file, since 9ed is still single-buffer
+  and genuinely can't switch files; a mismatch is rejected with a clear
+  error rather than silently ignored. Both reuse the existing
+  `goToLine`; `/goto` mirrors `/cards/<n>/body`'s accumulate-then-
+  commit-on-`Close` shape exactly.
+
 ## 0.2.0 - 2026-09-02
 
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now
