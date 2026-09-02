@@ -3,6 +3,8 @@ package main
 import (
 	"go/scanner"
 	"go/token"
+	"regexp"
+	"slices"
 
 	"github.com/sandgorgon/tui/cell"
 	"github.com/sandgorgon/tui/style"
@@ -70,6 +72,62 @@ func styleFor(tok token.Token, theme style.Theme) (cell.Style, bool) {
 	default:
 		return cell.Style{}, false
 	}
+}
+
+// searchHighlights returns one StyleSpan per occurrence of re in body,
+// styled as a search-match highlight (an inverted Accent/Background
+// pair, the same "reversed" convention a terminal find bar uses) — see
+// mergeHighlights for combining these with goHighlights on the same
+// TextArea.
+func searchHighlights(re *regexp.Regexp, body string, theme style.Theme) []widget.StyleSpan {
+	matches := bodyMatches(re, body)
+	if len(matches) == 0 {
+		return nil
+	}
+	st := cell.Style{Fg: theme.Background, Bg: theme.Accent}
+	spans := make([]widget.StyleSpan, len(matches))
+	for i, sp := range matches {
+		spans[i] = widget.StyleSpan{Start: sp[0], End: sp[1], Style: st}
+	}
+	return spans
+}
+
+// mergeHighlights combines base (e.g. goHighlights' syntax colors) with
+// overlay (e.g. searchHighlights' match highlight) into the single
+// sorted, non-overlapping span list widget.TextArea.Highlights requires
+// — its own doc comment is explicit that overlapping spans produce
+// undefined results, so simply concatenating the two lists isn't safe
+// whenever a match falls inside (or spans across) a syntax token, which
+// is the common case (searching for an identifier that's also
+// highlighted as such). overlay wins: each base span is clipped to drop
+// whatever portion an overlay span already covers, keeping only the
+// leftover fragments before/after/around it.
+func mergeHighlights(base, overlay []widget.StyleSpan) []widget.StyleSpan {
+	if len(overlay) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return overlay
+	}
+	out := make([]widget.StyleSpan, 0, len(base)+len(overlay))
+	for _, b := range base {
+		start := b.Start
+		for _, o := range overlay {
+			if o.End <= start || o.Start >= b.End {
+				continue
+			}
+			if o.Start > start {
+				out = append(out, widget.StyleSpan{Start: start, End: o.Start, Style: b.Style})
+			}
+			start = max(start, o.End)
+		}
+		if start < b.End {
+			out = append(out, widget.StyleSpan{Start: start, End: b.End, Style: b.Style})
+		}
+	}
+	out = append(out, overlay...)
+	slices.SortFunc(out, func(a, c widget.StyleSpan) int { return a.Start - c.Start })
+	return out
 }
 
 // byteToRuneOffsets returns, for every byte offset in s that starts a

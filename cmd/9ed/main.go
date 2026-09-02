@@ -874,6 +874,11 @@ func (m *model) editView() tui.Node {
 	if card.Kind != "" && filepath.Ext(m.path) == ".go" {
 		highlights = goHighlights(body, theme)
 	}
+	if m.activeSearch != "" {
+		if re, ok := searchRegexp(m.activeSearch); ok {
+			highlights = mergeHighlights(highlights, searchHighlights(re, body, theme))
+		}
+	}
 
 	// gotoLineCursor (an explicit {n}G target — see goto.go's goToLine)
 	// takes priority over a remembered cursorPos when both apply to
