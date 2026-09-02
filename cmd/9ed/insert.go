@@ -90,6 +90,33 @@ func (m *model) abandonEmptyInsert() {
 // backward jump doesn't have this problem: removal never moves anything
 // before the removed index, so the normal -1 from that same unchanged
 // cursor still lands correctly on what was originally at idx-1.
+//
+// Restoring the outgoing card's cursor position on a later return has
+// been attempted twice (tui v0.3.0's OnCursorChange, then again after
+// v0.3.1) and reverted both times after live testing — not for a lack
+// of trying, and not a 9ed design choice:
+//  1. v0.3.0: OnCursorChange delivered asynchronously (tui's Cmd/
+//     channel pipeline), so this synchronous cursor-index change could
+//     run — and the next card's TextArea could mount — before the last
+//     pending position update for the card being left had arrived.
+//     Filed tui#18; fixed in tui v0.3.1 (Run now resolves a
+//     widget-sourced Cmd synchronously before advancing to the next
+//     input event).
+//  2. v0.3.1, re-tested: the same race is gone, but a second, distinct
+//     bug surfaced immediately behind it — confirmed by instrumenting
+//     both sides and reading widget/textarea.go's handleKey directly:
+//     unlike Ctrl+Left/Right/Home/End (each has an explicit ctrl-
+//     guarded case checked first), Ctrl+Up/Down have no such guard, so
+//     they fall through to the plain Up/Down case and move the
+//     widget's own cursor too. Since the raw KeyEvent that triggers
+//     this jump is *also* delivered to the focused widget (tui always
+//     does both), the freshly-remounted destination card's widget
+//     immediately "eats" that same keystroke as an extra vertical
+//     move right after mounting with the correct restored position —
+//     overwriting it before the user ever sees it. See
+//     upstream-specs/tui-textarea-ctrl-updown-not-claimed.md.
+//
+// Don't re-attempt this without checking that spec's status first.
 func (m *model) jumpCard(delta int) {
 	m.gotoLineCursor = nil
 	abandoning := m.isEmptyInsert(m.cursor)

@@ -164,18 +164,13 @@ func segmenterFor(path string) deck.Segmenter {
 // card is selected, and any edited card content. Everything else
 // (TextArea's own cursor/selection/undo-redo, List's scroll offset) is
 // ephemeral widget-retained state, not tracked here — see
-// tui/docs/DESIGN.md §3.1. tui v0.3.0 added OnCursorChange, letting a
-// caller observe cursor position for the first time — tried mirroring
-// it into a per-card map to restore position across jumpCard's remount,
-// but abandoned it (confirmed live, not assumed): OnCursorChange only
-// delivers asynchronously through tui's Cmd/channel pipeline, so
-// jumpCard's synchronous cursor-index change can run — and the next
-// card's TextArea can mount — before the last pending position update
-// for the card being left has arrived, restoring a stale, wrong
-// position instead of the true last one. Needs a synchronous read (an
-// exported CursorOffset(), the option tui#15 didn't take) to fix
-// properly — filed as tui#18, see
-// upstream-specs/tui-textarea-cursor-readback-sync.md.
+// tui/docs/DESIGN.md §3.1. Two attempts at mirroring cursor position
+// into a per-card map (to restore it across jumpCard's remount) have
+// both been made and reverted after live testing — see jumpCard's own
+// doc comment in insert.go for why, and
+// upstream-specs/tui-textarea-cursor-readback-sync.md /
+// tui-textarea-ctrl-updown-not-claimed.md for the two distinct tui
+// gaps found along the way.
 type model struct {
 	path  string
 	src   []byte // original file content, never mutated except by a completed Save
@@ -644,10 +639,17 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				return m, nil
 			}
 			// Ctrl+Up/Down jump to the previous/next card's body
-			// without leaving Edit mode — confirmed free of TextArea's
-			// own key claims (widget/textarea.go's handleKey has no
-			// Ctrl+Up/Down case), so, like plain Esc, they reach here
-			// unclaimed.
+			// without leaving Edit mode — this still reaches Update
+			// and jumpCard runs correctly. What's NOT true (an earlier
+			// version of this comment claimed it was, incorrectly):
+			// TextArea's own handleKey does NOT ignore Ctrl+Up/Down —
+			// unlike Ctrl+Left/Right/Home/End, Up/Down have no
+			// ctrl-guarded case, so they fall through to the plain
+			// Up/Down case and move the widget's own cursor too, as an
+			// unwanted side effect. Harmless as long as nothing reads
+			// that side effect back out — see jumpCard's own doc
+			// comment for why that's exactly what blocks restoring
+			// cursor position across this jump.
 			if v.Mod&input.ModCtrl != 0 && v.Key == input.KeyDown {
 				m.jumpCard(1)
 				return m, nil

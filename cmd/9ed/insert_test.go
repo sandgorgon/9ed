@@ -64,8 +64,8 @@ func TestInsertCard(t *testing.T) {
 
 	// Regression: noteEdited was added (Note mode) without ever being
 	// wired into insertCard/removeCard's key-shifting, unlike edited —
-	// a latent bug caught while adding (and, after finding a race in
-	// tui's cursor-readback, subsequently backing out) a third such map.
+	// a latent bug caught while adding (and, after two separate tui
+	// bugs, subsequently backing out twice) a third such map.
 	t.Run("shifts noteEdited the same way as edited", func(t *testing.T) {
 		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true}}
 		m.insertCard(1, 5)

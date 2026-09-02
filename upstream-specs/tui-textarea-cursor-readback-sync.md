@@ -1,6 +1,13 @@
 # tui: TextArea.OnCursorChange has a structural race against a synchronous cursor-index change elsewhere in the app
 
-**Status:** Filed, not yet resolved.
+**Status:** Resolved in `tui` v0.3.1 — `Run` now resolves a
+widget-sourced `Cmd` synchronously before advancing to the next input
+event. Re-verified live with the same reproduction this spec's own
+evidence came from: the race is genuinely gone. Re-landing the actual
+9ed feature this was blocking surfaced a second, independent bug right
+behind it — see
+[`tui-textarea-ctrl-updown-not-claimed.md`](tui-textarea-ctrl-updown-not-claimed.md)
+(tui#20).
 
 **Issue:** https://github.com/sandgorgon/tui/issues/18
 

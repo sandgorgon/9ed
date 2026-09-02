@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Bumped `tui` v0.3.0 → v0.3.1, which fixed `tui#18` (the async-
+  ordering race noted below) — `Run` now resolves a widget-sourced
+  `Cmd` (e.g. `OnCursorChange`'s callback) synchronously before
+  advancing to the next input event. Re-verified live with the exact
+  same reproduction that caught the original race: confirmed genuinely
+  fixed. Re-landing the cursor-restore feature this was blocking then
+  surfaced a *second*, independent bug immediately behind it: unlike
+  `Ctrl+Left`/`Right`/`Home`/`End`, `tui`'s `TextArea.handleKey` has no
+  `ctrl`-guarded case for `Up`/`Down`, so `Ctrl+↑`/`Ctrl+↓` fall
+  through to plain vertical movement — meaning the destination card's
+  freshly-mounted widget (already correctly restored via
+  `InitialCursor`) immediately "eats" the very same jump keystroke as
+  an extra move, overwriting the just-restored position before it's
+  ever seen. Confirmed by instrumenting both sides again and reading
+  `handleKey` directly, not assumed. Reverted the feature a second
+  time; filed [`tui#20`](https://github.com/sandgorgon/tui/issues/20)
+  requesting the same Ctrl-guard treatment `Left`/`Right`/`Home`/`End`
+  already get, cross-referenced on `tui#18`. New local spec:
+  `upstream-specs/tui-textarea-ctrl-updown-not-claimed.md`; corrected
+  a stale, now-demonstrably-wrong `cmd/9ed/main.go` comment that had
+  claimed `handleKey` has "no Ctrl+Up/Down case" at all.
 - Bumped `tui` v0.2.0 → v0.3.0, which added `TextArea.OnCursorChange`
   (resolving `tui#15`, filed by this project). Wired it up to restore
   cursor position across a cross-card jump (`jumpCard`,
