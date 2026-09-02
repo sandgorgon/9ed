@@ -31,6 +31,17 @@
   quit 9ed outright mid-keystroke; one containing `t` silently flipped
   the theme. Confirmed live in tmux before and after the fix.
 
+- `cmd/9ed`: bare `9ed`, or `9ed <dir>`, now opens a directory browser
+  ("files are cards of a directory") instead of erroring with
+  "usage: 9ed <file>". Descend-only, no parent/`..` navigation, since
+  9sh's default namespace only exposes `/local` bound to its own start
+  directory — "above" wherever browsing began isn't representable
+  through it. Listing prefers 9sh's namespace (new `nsListDir`) and
+  falls back to plain `os.ReadDir`, matching the read/save fallback
+  shape `nsopen.go` already uses. Also rewrote the CLI's `-h`/`--help`
+  text, which had fallen behind the previous entry's search/replace
+  work.
+
 ## 0.2.0 - 2026-09-02
 
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now

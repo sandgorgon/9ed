@@ -21,9 +21,11 @@ cross-card-jump navigation (restoring each card's cursor position across
 a jump), full-text search across titles and bodies with regexp,
 jump-to-match/`Ctrl+N`/`Ctrl+P` walking, match highlighting, and
 whole-file confirm-replace (see [Search and
-replace](#search-and-replace) below), precise go-to-line, line numbers,
-atomic save, a runtime light/dark theme toggle (`t`), a 9P server
-surface for a running buffer with a writable `/cards/<n>/body`,
+replace](#search-and-replace) below), directory browsing for bare
+`9ed`/`9ed <dir>` invocation (see [Directory
+browsing](#directory-browsing) below), precise go-to-line, line
+numbers, atomic save, a runtime light/dark theme toggle (`t`), a 9P
+server surface for a running buffer with a writable `/cards/<n>/body`,
 namespace-aware open/save (see
 [Namespace-aware file I/O](#namespace-aware-file-io) below), and card
 annotations — markdown notes plus `todo`/`needs-review` badges (see
@@ -114,6 +116,23 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Directory browsing
+
+Bare `9ed`, or `9ed <dir>`, opens a directory browser instead of
+requiring an exact file path — "files are cards of a directory," one
+level up from 9ed's per-file card model. `j`/`k` move, `Enter` descends
+into a directory or opens a file (loading it into the normal editor),
+`q`/`Ctrl+C` quits without opening anything. Listing prefers 9sh's
+namespace when one is reachable, falling back to plain `os.ReadDir`
+otherwise — the same shape [namespace-aware file
+I/O](#namespace-aware-file-io) already uses for read/save.
+
+Deliberately descend-only: there's no parent/`..` navigation. 9sh's
+default namespace only exposes `/local` bound to the directory it was
+started in, so "above" wherever browsing began isn't representable
+through it at all — quit and re-run `9ed <dir>` with a more specific
+path instead.
 
 ## Search and replace
 
