@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Bumped `tui` v0.2.0 → v0.3.0, which added `TextArea.OnCursorChange`
+  (resolving `tui#15`, filed by this project). Wired it up to restore
+  cursor position across a cross-card jump (`jumpCard`,
+  `cmd/9ed/insert.go`) — then backed it out after driving it live in
+  tmux (not just building and assuming it worked) surfaced a real,
+  consistently reproducible race: `OnCursorChange` only delivers
+  asynchronously through `tui`'s Cmd/channel pipeline, so `jumpCard`'s
+  synchronous cursor-index change can run, and the next card's
+  `TextArea` can mount, before the last pending position update for
+  the card being left has arrived — restoring a stale position
+  instead of the true last one, off by exactly however much movement
+  was still in flight. Confirmed with an instrumented run capturing
+  the actual message-arrival order: a card's true final cursor offset
+  arrived *after* both halves of the jump had already completed and
+  the widget had already remounted using a stale value. Filed
+  [`tui#18`](https://github.com/sandgorgon/tui/issues/18) requesting
+  the exported-query-method half of `tui#15`'s original proposal
+  (`tui#15` only took the callback half) — that's the only way to
+  read cursor position synchronously, avoiding the race entirely; a
+  callback fundamentally can't. Not reattempted here; see
+  `upstream-specs/tui-textarea-cursor-readback-sync.md`.
+  - A real, independent bug got caught and fixed as a side effect of
+    this work regardless: `m.noteEdited` (added for Note mode) was
+    never being reindexed by `insertCard`/`removeCard` the way
+    `m.edited` already was, so inserting a card while another had an
+    unsaved note/flag change would silently misattribute that
+    dirty-tracking to the wrong card afterward. Fixed by extracting
+    `shiftKeysForInsert`/`shiftKeysForRemove` (Go generics, shared by
+    both maps) rather than tripling the inline shifting logic a third
+    map would otherwise have needed.
 - Card annotations: markdown notes and two user-authored badges
   (`todo`/`needs-review`), the sharpest gap identified in a feature
   evaluation pass against `v0.1.2` — "no cross-card visual context"

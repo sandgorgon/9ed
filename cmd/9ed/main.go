@@ -164,7 +164,18 @@ func segmenterFor(path string) deck.Segmenter {
 // card is selected, and any edited card content. Everything else
 // (TextArea's own cursor/selection/undo-redo, List's scroll offset) is
 // ephemeral widget-retained state, not tracked here — see
-// tui/docs/DESIGN.md §3.1.
+// tui/docs/DESIGN.md §3.1. tui v0.3.0 added OnCursorChange, letting a
+// caller observe cursor position for the first time — tried mirroring
+// it into a per-card map to restore position across jumpCard's remount,
+// but abandoned it (confirmed live, not assumed): OnCursorChange only
+// delivers asynchronously through tui's Cmd/channel pipeline, so
+// jumpCard's synchronous cursor-index change can run — and the next
+// card's TextArea can mount — before the last pending position update
+// for the card being left has arrived, restoring a stale, wrong
+// position instead of the true last one. Needs a synchronous read (an
+// exported CursorOffset(), the option tui#15 didn't take) to fix
+// properly — filed as tui#18, see
+// upstream-specs/tui-textarea-cursor-readback-sync.md.
 type model struct {
 	path  string
 	src   []byte // original file content, never mutated except by a completed Save

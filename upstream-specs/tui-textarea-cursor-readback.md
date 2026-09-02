@@ -1,6 +1,13 @@
 # tui: TextArea needs a way to read back the live cursor position
 
-**Status:** Filed, not yet resolved.
+**Status:** Resolved in `tui` v0.3.0 — `TextAreaOptions.OnCursorChange
+func(offset int) tui.Msg`, the callback half of the two options this
+spec proposed. Wiring it up in 9ed surfaced that the callback alone
+doesn't fully close the gap this spec exists for (a race against a
+synchronous cursor-index change elsewhere in the app) — see
+[`tui-textarea-cursor-readback-sync.md`](tui-textarea-cursor-readback-sync.md)
+(tui#18) for the exported-query-method half this spec also proposed,
+which the race turned out to actually need.
 
 **Issue:** https://github.com/sandgorgon/tui/issues/15
 

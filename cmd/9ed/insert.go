@@ -26,24 +26,35 @@ const (
 )
 
 // insertCard splices a new empty card (Span [pos,pos), Kind newCardKind)
-// into m.cards at idx, shifting every later card — and every edited key
-// at or above idx — up by one.
+// into m.cards at idx, shifting every later card — and every index-keyed
+// per-card map's keys at or above idx — up by one.
 func (m *model) insertCard(idx, pos int) {
 	m.cards = append(m.cards, deck.Card{})
 	copy(m.cards[idx+1:], m.cards[idx:])
 	m.cards[idx] = deck.Card{Span: [2]int{pos, pos}, Kind: newCardKind}
 
-	if len(m.edited) == 0 {
-		return
+	m.edited = shiftKeysForInsert(m.edited, idx)
+	m.noteEdited = shiftKeysForInsert(m.noteEdited, idx)
+}
+
+// shiftKeysForInsert reindexes an index-keyed per-card map to account
+// for insertCard splicing a new card in at idx: every key at or above
+// idx moves up by one, the same shift m.cards itself just got. Shared
+// by every such map (m.edited, m.noteEdited) — each needs identical
+// reindexing, just over a different value type. A nil/empty m is
+// returned unchanged rather than allocating a fresh empty map.
+func shiftKeysForInsert[V any](m map[int]V, idx int) map[int]V {
+	if len(m) == 0 {
+		return m
 	}
-	shifted := make(map[int]string, len(m.edited))
-	for i, v := range m.edited {
+	shifted := make(map[int]V, len(m))
+	for i, v := range m {
 		if i >= idx {
 			i++
 		}
 		shifted[i] = v
 	}
-	m.edited = shifted
+	return shifted
 }
 
 // isEmptyInsert reports whether m.cards[i] is an untouched card from
@@ -96,18 +107,27 @@ func (m *model) jumpCard(delta int) {
 }
 
 // removeCard splices m.cards[idx] out, shifting every later card — and
-// every edited key above idx — down by one, dropping any entry at idx.
-// Only used to silently undo an insertCard the user backed out of
-// without typing anything (see Update's Esc handling) — deleting a card
-// with real content instead happens by emptying its body and letting
-// Save's resegmentation drop it, not through this.
+// every index-keyed per-card map's keys above idx — down by one,
+// dropping any entry at idx. Only used to silently undo an insertCard
+// the user backed out of without typing anything (see Update's Esc
+// handling) — deleting a card with real content instead happens by
+// emptying its body and letting Save's resegmentation drop it, not
+// through this.
 func (m *model) removeCard(idx int) {
 	m.cards = append(m.cards[:idx], m.cards[idx+1:]...)
-	if len(m.edited) == 0 {
-		return
+	m.edited = shiftKeysForRemove(m.edited, idx)
+	m.noteEdited = shiftKeysForRemove(m.noteEdited, idx)
+}
+
+// shiftKeysForRemove is shiftKeysForInsert's inverse for removeCard:
+// drops the entry at idx entirely (its card is gone) and moves every
+// key above idx down by one.
+func shiftKeysForRemove[V any](m map[int]V, idx int) map[int]V {
+	if len(m) == 0 {
+		return m
 	}
-	shifted := make(map[int]string, len(m.edited))
-	for i, v := range m.edited {
+	shifted := make(map[int]V, len(m))
+	for i, v := range m {
 		switch {
 		case i == idx:
 			continue
@@ -116,5 +136,5 @@ func (m *model) removeCard(idx int) {
 		}
 		shifted[i] = v
 	}
-	m.edited = shifted
+	return shifted
 }

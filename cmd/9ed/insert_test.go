@@ -61,6 +61,24 @@ func TestInsertCard(t *testing.T) {
 			t.Errorf("edited[2] = %q, want shifted-up \"edited B\"", m.edited[2])
 		}
 	})
+
+	// Regression: noteEdited was added (Note mode) without ever being
+	// wired into insertCard/removeCard's key-shifting, unlike edited —
+	// a latent bug caught while adding (and, after finding a race in
+	// tui's cursor-readback, subsequently backing out) a third such map.
+	t.Run("shifts noteEdited the same way as edited", func(t *testing.T) {
+		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true}}
+		m.insertCard(1, 5)
+		if !m.noteEdited[0] {
+			t.Error("noteEdited[0] should be unchanged")
+		}
+		if m.noteEdited[1] {
+			t.Error("noteEdited[1] should have shifted away")
+		}
+		if !m.noteEdited[2] {
+			t.Error("noteEdited[2] should be shifted-up from 1")
+		}
+	})
 }
 
 func TestRemoveCard(t *testing.T) {
@@ -91,6 +109,20 @@ func TestRemoveCard(t *testing.T) {
 		}
 		if _, ok := m.edited[2]; ok {
 			t.Error("edited[2] should be gone after the shift")
+		}
+	})
+
+	t.Run("shifts noteEdited the same way as edited", func(t *testing.T) {
+		m := &model{cards: base(), noteEdited: map[int]bool{0: true, 1: true, 2: true}}
+		m.removeCard(1)
+		if !m.noteEdited[0] {
+			t.Error("noteEdited[0] should be unchanged")
+		}
+		if !m.noteEdited[1] {
+			t.Error("noteEdited[1] should be shifted-down from 2")
+		}
+		if m.noteEdited[2] {
+			t.Error("noteEdited[2] should be gone after the shift")
 		}
 	})
 
