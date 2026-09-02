@@ -39,18 +39,21 @@ import (
 var version = "dev"
 
 const helpText = `usage: 9ed <file>
+       9ed [dir]
        9ed -h | --help
        9ed -version | --version
 
 9ed decomposes <file> into structurally meaningful cards (see package
 deck) instead of editing it as an undifferentiated block of lines.
+Bare '9ed', or '9ed <dir>', opens a directory browser instead (see
+"Browse mode" below) rather than requiring an exact file path.
 
 Nav mode:
   j/k, ↑/↓     move
   gg / G       first / last card
   {n}G         goto line n
   PgUp/PgDn    page up/down
-  /            filter cards
+  /            search titles and bodies (regexp); ^r for replace
   enter        edit current card
   n            edit current card's note
   f            toggle 'todo' flag on current card
@@ -63,6 +66,7 @@ Nav mode:
 Edit mode:
   esc          back to Nav
   ^↑ / ^↓      jump to previous / next card, staying in Edit
+  ^n / ^p      jump to next / previous search match
   ^s           save
   ^c           quit
 
@@ -70,6 +74,11 @@ Note mode (entered with 'n' from Nav):
   esc          back to Nav
   ^s           save
   ^c           quit
+
+Browse mode (bare '9ed' or '9ed <dir>'):
+  j/k, ↑/↓     move
+  enter        open file, or descend into directory
+  q, ^c        quit without opening anything
 `
 
 func main() {
@@ -89,11 +98,40 @@ func run() int {
 		fmt.Print(helpText)
 		return 0
 	}
-	if len(os.Args) != 2 {
+	if len(os.Args) > 2 {
 		fmt.Fprintln(os.Stderr, "usage: 9ed <file>")
 		return 1
 	}
-	path := os.Args[1]
+
+	// Bare `9ed`, or `9ed <dir>`, browses instead of requiring an exact
+	// file path (backlog item 2) — see browse.go. The is-it-a-directory
+	// check is a plain os.Stat, a local, pre-namespace decision about how
+	// to interpret the CLI argument (nsRelPath itself already leans on
+	// plain os.Getwd/filepath.Abs the same way) — the *listing* once
+	// browsing starts still prefers 9sh's namespace (browse.go's listDir).
+	// A namespace rebind that made a path a directory only inside the
+	// namespace, while it's something else (or absent) on the real
+	// filesystem, is a known, accepted gap: routing 9ed's very first
+	// argument can't itself depend on a namespace dial without adding one
+	// unconditionally to every plain single-file invocation too.
+	var path string
+	switch {
+	case len(os.Args) == 1:
+		chosen, ok := runBrowse(".")
+		if !ok {
+			return 0
+		}
+		path = chosen
+	default:
+		path = os.Args[1]
+		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+			chosen, ok := runBrowse(path)
+			if !ok {
+				return 0
+			}
+			path = chosen
+		}
+	}
 
 	// Prefer 9sh's namespace when one is reachable (see nsopen.go): it
 	// honors any rebind the user has set up at /local, which raw OS

@@ -124,6 +124,47 @@ func nsReadFile(path string) (data []byte, ok bool) {
 	return data, true
 }
 
+// nsListDir attempts to list path's entries by walking /local/<rel> in
+// 9sh's namespace and reading it as a directory (see browse.go's
+// listDir, which falls back to plain os.ReadDir when ok is false, for
+// the same reasons nsReadFile's is). rel == "." (path is the namespace
+// root itself, i.e. cwd) needs no further Walk elements — Walk with
+// zero names is 9P's own "stay where you are," so appending a literal
+// "." element would ask to walk into a child named ".", which doesn't
+// exist as a real directory entry over 9P.
+func nsListDir(path string) (entries []p9.Stat, ok bool) {
+	rel, within := nsRelPath(path)
+	if !within {
+		return nil, false
+	}
+	c, root, err := dialNamespace()
+	if err != nil {
+		return nil, false
+	}
+	defer c.Close()
+
+	elems := []string{"local"}
+	if rel != "." {
+		elems = append(elems, strings.Split(rel, "/")...)
+	}
+	f, err := root.Walk(elems...)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Clunk()
+	dir, err := f.OpenFile(p9.OREAD)
+	if err != nil {
+		return nil, false
+	}
+	defer dir.Close()
+
+	entries, err = dir.ReadDir()
+	if err != nil {
+		return nil, false
+	}
+	return entries, true
+}
+
 // nsSaveFile attempts to atomically write data to path through 9sh's
 // namespace: create a temp file alongside the target under /local, then
 // rename it into place via WStat. dirfs (the usual backing for /local —
