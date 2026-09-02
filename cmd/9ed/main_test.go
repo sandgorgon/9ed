@@ -7,6 +7,7 @@ import (
 	"github.com/sandgorgon/tui/tui"
 
 	"github.com/sandgorgon/9ed/deck"
+	"github.com/sandgorgon/9ed/notes"
 )
 
 func TestSegmenterForUnknownExtension(t *testing.T) {
@@ -166,6 +167,65 @@ func TestCardFirstLine(t *testing.T) {
 			t.Errorf("cardFirstLine(src, %d) = %d, want %d", tt.cardStart, got, tt.want)
 		}
 	}
+}
+
+func TestCardBadges(t *testing.T) {
+	cards := []deck.Card{
+		{Kind: "func", Title: "func Foo() error", Name: "Foo"},
+		{Kind: "func", Title: "func Bar() error", Name: "Bar"},
+	}
+
+	t.Run("no note, no references: no badge", func(t *testing.T) {
+		m := &model{cards: cards}
+		if got := m.cardBadges(0); got != "" {
+			t.Errorf("cardBadges(0) = %q, want \"\"", got)
+		}
+	})
+
+	t.Run("a nil notesFile behaves as no notes, not a panic", func(t *testing.T) {
+		m := &model{cards: cards} // notesFile left at its zero value (nil)
+		if got := m.cardBadges(0); got != "" {
+			t.Errorf("cardBadges(0) = %q, want \"\"", got)
+		}
+	})
+
+	t.Run("a note attached to this card's (Kind, Title) shows [note]", func(t *testing.T) {
+		sc := notes.New()
+		sc.Set("func", "func Foo() error", "why this exists")
+		m := &model{cards: cards, notesFile: sc}
+		if got := m.cardBadges(0); got != "  [note]" {
+			t.Errorf("cardBadges(0) = %q, want %q", got, "  [note]")
+		}
+		if got := m.cardBadges(1); got != "" {
+			t.Errorf("cardBadges(1) = %q, want \"\" (no note attached to card 1)", got)
+		}
+	})
+
+	t.Run("references show [refs:N]", func(t *testing.T) {
+		m := &model{cards: cards, refs: [][]int{nil, {0}}}
+		if got := m.cardBadges(1); got != "  [refs:1]" {
+			t.Errorf("cardBadges(1) = %q, want %q", got, "  [refs:1]")
+		}
+		if got := m.cardBadges(0); got != "" {
+			t.Errorf("cardBadges(0) = %q, want \"\" (nothing references card 0)", got)
+		}
+	})
+
+	t.Run("a refs slice shorter than cards (e.g. right after an insert) is a safe no-badge, not a panic", func(t *testing.T) {
+		m := &model{cards: cards, refs: [][]int{{1}}} // len 1, but cards has 2
+		if got := m.cardBadges(1); got != "" {
+			t.Errorf("cardBadges(1) = %q, want \"\"", got)
+		}
+	})
+
+	t.Run("both badges together", func(t *testing.T) {
+		sc := notes.New()
+		sc.Set("func", "func Foo() error", "note text")
+		m := &model{cards: cards, notesFile: sc, refs: [][]int{nil, {0}}}
+		if got := m.cardBadges(0); got != "  [note]" {
+			t.Errorf("cardBadges(0) = %q, want %q", got, "  [note]")
+		}
+	})
 }
 
 func TestListEventNavKeys(t *testing.T) {

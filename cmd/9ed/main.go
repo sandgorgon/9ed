@@ -27,6 +27,7 @@ import (
 	"github.com/sandgorgon/tui/widget"
 
 	"github.com/sandgorgon/9ed/deck"
+	"github.com/sandgorgon/9ed/notes"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=vX.Y.Z"
@@ -87,21 +88,24 @@ func run() int {
 	// honors any rebind the user has set up at /local, which raw OS
 	// calls would silently bypass. Outside 9sh, or under a 9sh that
 	// wasn't started with -listen-unix, nsReadFile always reports
-	// ok=false and this falls back to the plain os.ReadFile 9ed has
-	// always used.
-	src, ok := nsReadFile(path)
-	if !ok {
-		var err error
-		src, err = os.ReadFile(path)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "9ed:", err)
-			return 1
-		}
+	// ok=false and readFileNS falls back to the plain os.ReadFile 9ed
+	// has always used.
+	src, err := readFileNS(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "9ed:", err)
+		return 1
 	}
 	seg := segmenterFor(path)
 
 	writes := make(chan p9WriteMsg)
 	m := newModel(path, src, seg, seg.Segment(src), writes)
+	// The .9an sidecar is optional and best-effort — no such file (the
+	// overwhelmingly common case today, since nothing writes one yet)
+	// or any read failure just means no notes for this file, not an
+	// error opening it.
+	if sidecar, err := readFileNS(notes.SidecarPath(path)); err == nil {
+		m.notesFile = notes.Parse(sidecar)
+	}
 	m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	// The 9P surface is best-effort, not required to edit: a runtime
@@ -200,6 +204,22 @@ type model struct {
 
 	saveErr string // last save's error, if any; cleared by the next successful save
 
+	// notesFile holds this file's .9an sidecar (see package notes) —
+	// always non-nil, empty when no sidecar exists yet. Read-only for
+	// now: loaded once at startup (see run()), nothing in the model
+	// writes to it yet — that's the note-editing UI, a separate step.
+	notesFile *notes.Sidecar
+
+	// refs is deck.References(src, cards): for card i, the indices of
+	// other cards whose body mentions cards[i].Name. Recomputed
+	// whenever src/cards actually change (construction, a successful
+	// Save) — never on every keystroke/insert, matching References'
+	// own "load/save time, not live" design. Can run shorter than
+	// cards immediately after an insertCard (which grows cards without
+	// touching src) — every reader must bounds-check against len(refs)
+	// rather than assume it tracks cards 1:1 at all times.
+	refs [][]int
+
 	// theme is the active color theme, initially style.DefaultDark or
 	// style.DefaultLight per style.DetectAppearance's $COLORFGBG-based
 	// guess (see newModel), and flippable at runtime with 't' (see the
@@ -223,7 +243,12 @@ type model struct {
 
 func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg) *model {
 	theme := style.Default(style.DetectAppearance(os.Getenv))
-	return &model{path: path, src: src, seg: seg, cards: cards, theme: theme, view: &bufferView{}, writes: writes}
+	return &model{
+		path: path, src: src, seg: seg, cards: cards, theme: theme,
+		view: &bufferView{}, writes: writes,
+		notesFile: notes.New(),
+		refs:      deck.References(src, cards),
+	}
 }
 
 // toggleTheme flips between the light and dark defaults — a plain swap,
@@ -467,6 +492,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		}
 		m.saveErr = ""
 		m.src, m.cards, m.edited = v.src, v.cards, nil
+		m.refs = deck.References(m.src, m.cards)
 		if m.cursor >= len(m.cards) {
 			m.cursor = max(len(m.cards)-1, 0)
 		}
@@ -554,7 +580,7 @@ func (m *model) navView() tui.Node {
 		if _, ok := m.edited[i]; ok {
 			mark = "*" // edited-but-unsaved indicator
 		}
-		titles[pos] = fmt.Sprintf("%s%-9s %s", mark, c.Kind, c.Title)
+		titles[pos] = fmt.Sprintf("%s%-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
 		if i == m.cursor {
 			cursorInList = pos
 		}
@@ -574,6 +600,25 @@ func (m *model) navView() tui.Node {
 		tui.Child(layout.Fill(1), list),
 		tui.Child(layout.Length(1), help),
 	).Margin(1)
+}
+
+// cardBadges returns a compact, space-prefixed suffix noting card i's
+// system-derived annotations for Nav mode's list line — whether it has
+// a note, and how many other cards mention it (see deck.References) —
+// or "" when neither applies. Purely informational: nothing here
+// affects navigation or editing. User-authored badges (an explicit
+// "todo"/"needs-review" flag, distinct from a note's own body) aren't
+// wired up yet — no UI exists to set one.
+func (m *model) cardBadges(i int) string {
+	c := m.cards[i]
+	badges := ""
+	if _, ok := m.notesFile.Get(c.Kind, c.Title); ok {
+		badges += "  [note]"
+	}
+	if i < len(m.refs) && len(m.refs[i]) > 0 {
+		badges += fmt.Sprintf("  [refs:%d]", len(m.refs[i]))
+	}
+	return badges
 }
 
 func pluralS(n int) string {

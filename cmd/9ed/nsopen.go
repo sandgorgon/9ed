@@ -35,6 +35,18 @@ import (
 // with -listen-unix. See 9sh's cmd/9sh/main.go bootstrap.
 const nsSockEnv = "_9SH_UNIX_SOCK"
 
+// readFileNS reads path, preferring 9sh's namespace (see nsReadFile)
+// when one is reachable and falling back to plain os.ReadFile otherwise
+// — the shared best-effort read both the source file and its .9an
+// sidecar (see notes.SidecarPath) go through, so a sidecar honors the
+// same /local rebind a source read does.
+func readFileNS(path string) ([]byte, error) {
+	if data, ok := nsReadFile(path); ok {
+		return data, nil
+	}
+	return os.ReadFile(path)
+}
+
 // nsRelPath expresses path relative to the process's working directory,
 // reporting ok=false if it can't (a Getwd/Abs failure) or if it lies
 // outside cwd entirely (9sh's default namespace only binds cwd at

@@ -127,6 +127,16 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNilSidecarIsSafeToRead(t *testing.T) {
+	var s *Sidecar
+	if got := s.Len(); got != 0 {
+		t.Errorf("nil.Len() = %d, want 0", got)
+	}
+	if body, ok := s.Get("func", "Foo"); ok || body != "" {
+		t.Errorf("nil.Get(func, Foo) = %q, %v, want \"\", false", body, ok)
+	}
+}
+
 func TestMarshalEmptySidecar(t *testing.T) {
 	if got := string(New().Marshal()); got != "" {
 		t.Errorf("Marshal() on an empty Sidecar = %q, want \"\"", got)

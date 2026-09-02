@@ -52,8 +52,14 @@ func New() *Sidecar {
 }
 
 // Get returns the note body for the card identified by (kind, title),
-// and whether one exists at all.
+// and whether one exists at all. A nil *Sidecar (a model's zero value,
+// before any file's sidecar has been loaded) behaves as an empty one —
+// every lookup simply reports ok=false, rather than every caller having
+// to guard against a not-yet-loaded Sidecar itself.
 func (s *Sidecar) Get(kind, title string) (body string, ok bool) {
+	if s == nil {
+		return "", false
+	}
 	i, ok := s.index[key{kind, title}]
 	if !ok {
 		return "", false
@@ -92,8 +98,11 @@ func (s *Sidecar) Delete(kind, title string) bool {
 	return true
 }
 
-// Len reports how many notes s holds.
+// Len reports how many notes s holds. Nil-safe, like Get.
 func (s *Sidecar) Len() int {
+	if s == nil {
+		return 0
+	}
 	return len(s.entries)
 }
 
