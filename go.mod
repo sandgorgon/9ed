@@ -7,4 +7,4 @@ require (
 	github.com/sandgorgon/tui v0.2.0
 )
 
-require github.com/sandgorgon/9sh v0.3.1
+require github.com/sandgorgon/9sh v0.4.0

@@ -9,12 +9,14 @@ import (
 )
 
 // KyuSegmenter segments kyu source into one card per top-level statement
-// (a `name := expr` define, a `target = expr` assign, a `bind` namespace
-// verb, or a bare expression statement), plus a leading "preamble" card
-// for any content before the first statement — or, if the source fails to
-// parse or has no top-level statements at all, one "preamble" card
-// covering the whole file. Uses 9sh's kyu/parser (a real AST, not a
-// line-based heuristic) for boundaries, the same spirit as GoSegmenter.
+// (a `name := expr` define, a `target = expr` assign, a `bind`/`unbind`
+// namespace verb, a `$cmd` passthrough, or a bare expression statement —
+// which itself may be a `while`/`break`/`continue`), plus a leading
+// "preamble" card for any content before the first statement — or, if the
+// source fails to parse or has no top-level statements at all, one
+// "preamble" card covering the whole file. Uses 9sh's kyu/parser (a real
+// AST, not a line-based heuristic) for boundaries, the same spirit as
+// GoSegmenter.
 //
 // kyu's lexer tracks each token's (line, rune-column), not a byte offset,
 // so card spans are reconstructed by walking src's own line-start table —
@@ -53,8 +55,8 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 		// Only "define" gets a Name: it's the one statement kind that
 		// actually introduces a new identifier. "assign" mutates an
 		// existing one (and its Target can be an arbitrary FieldAccess
-		// chain, not a single name); "bind" and "expr" don't define
-		// anything at all — see Card.Name.
+		// chain, not a single name); "bind"/"unbind"/"passthrough"/
+		// "expr" don't define anything at all — see Card.Name.
 		name := ""
 		if d, ok := s.(*kast.DefineStmt); ok {
 			name = d.Name
@@ -91,6 +93,10 @@ func kyuStmtTok(s kast.Stmt) (ktoken.Token, string) {
 		return kyuExprTok(n.Target), "assign"
 	case *kast.BindStmt:
 		return n.Tok, "bind"
+	case *kast.UnbindStmt:
+		return n.Tok, "unbind"
+	case *kast.PassthroughStmt:
+		return n.Tok, "passthrough"
 	case *kast.ExprStmt:
 		return kyuExprTok(n.X), "expr"
 	default:
@@ -151,6 +157,12 @@ func kyuExprTok(e kast.Expr) ktoken.Token {
 	case *kast.IfExpr:
 		return n.Tok
 	case *kast.AtHost:
+		return n.Tok
+	case *kast.WhileExpr:
+		return n.Tok
+	case *kast.BreakExpr:
+		return n.Tok
+	case *kast.ContinueExpr:
 		return n.Tok
 	default:
 		return ktoken.Token{}

@@ -76,6 +76,31 @@ func TestKyuSegmenter(t *testing.T) {
 				{Kind: "bind", Title: "bind /x, /y"},
 			},
 		},
+		{
+			name: "unbind statement",
+			src:  "unbind /mnt\n",
+			want: []Card{{Kind: "unbind", Title: "unbind /mnt"}},
+		},
+		{
+			name: "passthrough statement",
+			src:  "$vim foo\n",
+			want: []Card{{Kind: "passthrough", Title: "$vim foo"}},
+		},
+		{
+			name: "top-level while loop is an expr statement, not corrupted into a stmt fallback",
+			src:  "while true {\n\tbreak\n}\n",
+			want: []Card{{Kind: "expr", Title: "while true {"}},
+		},
+		{
+			name: "bind, unbind, passthrough, and while in sequence",
+			src:  "bind /a, /b\n\nunbind /b\n\n$ls\n\nwhile false {\n\tcontinue\n}\n",
+			want: []Card{
+				{Kind: "bind", Title: "bind /a, /b"},
+				{Kind: "unbind", Title: "unbind /b"},
+				{Kind: "passthrough", Title: "$ls"},
+				{Kind: "expr", Title: "while false {"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
