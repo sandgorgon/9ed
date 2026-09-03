@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-02
+
 - `cmd/9ed`: `/` now searches card bodies, not just titles, and matches
   as a case-insensitive regexp instead of a plain substring — the
   project's own "most conspicuous gap" from the original feature
