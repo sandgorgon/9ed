@@ -39,6 +39,7 @@ import (
 var version = "dev"
 
 const helpText = `usage: 9ed <file>
+       9ed <file>:<line>
        9ed [dir]
        9ed -h | --help
        9ed -version | --version
@@ -47,6 +48,11 @@ const helpText = `usage: 9ed <file>
 deck) instead of editing it as an undifferentiated block of lines.
 Bare '9ed', or '9ed <dir>', opens a directory browser instead (see
 "Browse mode" below) rather than requiring an exact file path.
+'9ed <file>:<line>' opens straight into that line (the "path:line"
+convention grep/compilers already use for their own output) — a
+running 9ed can also be jumped to a line from outside via its 9P
+server's writable /goto file, or from another instance via the buffer
+picker's plumb prompt (see below).
 
 Nav mode:
   j/k, ↑/↓     move
