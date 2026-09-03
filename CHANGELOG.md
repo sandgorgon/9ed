@@ -62,6 +62,26 @@
   existing no-entry fallback already *is* "how this card looked before
   any edits this session," so reverting is just clearing the entry.
 
+- `cmd/9ed`: added a cross-instance buffer picker (`b` from Nav mode) —
+  item 8, reframed around 9ed's actual "a buffer is a process" model
+  rather than conventional multi-buffer-in-one-process. Lists every
+  other running 9ed buffer (reading the shared per-user runtime
+  directory each instance already wrote a discovery file into, unused
+  infrastructure from as far back as M12); selecting one dials its own
+  9P socket to show live `/tag` state, then a typed line number writes
+  to its `/goto` to jump it remotely. Found and fixed two real bugs via
+  live tmux testing, both from the same root cause (`tui`'s `Dispatch`
+  calls `Update` then `render()` *before* checking for a focused
+  widget, so a keystroke causing a "no widget" → "a widget" transition
+  gets redelivered to that same freshly-mounted widget): the picker's
+  own Esc-from-inspect briefly closed the whole picker right back out
+  (fixed by making `q`, not Esc, the list view's only "leave" key), and
+  a pre-existing one in item 1's replace feature, where dismissing the
+  replace-done screen with "any key" could silently trigger a real Nav
+  action (Enter opening a card, a digit feeding `{n}G`) immediately
+  after — restricted to Esc only, the one key Nav's own key handling is
+  guaranteed to ignore if redelivered.
+
 ## 0.2.0 - 2026-09-02
 
 - `cmd/9ed`: cross-card jump (`Ctrl+↑`/`Ctrl+↓` in Edit mode) now

@@ -24,9 +24,10 @@ whole-file confirm-replace (see [Search and
 replace](#search-and-replace) below), directory browsing for bare
 `9ed`/`9ed <dir>` invocation (see [Directory
 browsing](#directory-browsing) below), Acme-style `path:line` plumbing
-(see [Plumbing](#plumbing) below), a per-card revert for unsaved body
-edits (`u`, see [Reverting unsaved edits](#reverting-unsaved-edits)
-below), precise go-to-line, line numbers,
+(see [Plumbing](#plumbing) below), a cross-instance buffer picker (`b`, see [Cross-instance buffer
+picker](#cross-instance-buffer-picker) below), a per-card revert for
+unsaved body edits (`u`, see [Reverting unsaved
+edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers,
 atomic save, a runtime light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
 `/goto`, namespace-aware open/save (see
@@ -119,6 +120,20 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Cross-instance buffer picker
+
+9ed treats a buffer as a running process, not a slot inside one process
+juggling several files — "two 9ed instances on the same file are two
+distinct buffers." `b` from Nav mode lists every *other* 9ed buffer
+currently running for you (reading a shared per-user runtime directory
+each instance writes a small discovery file into — no 9sh involved,
+works identically standalone), dialing that buffer's own 9P socket to
+show its live state once selected. From there, typing a line number and
+pressing Enter writes it to that buffer's `/goto`, jumping its cursor
+remotely — fire-and-forget, since the result only appears in that other
+process's own terminal, a different process entirely. `q` leaves the
+picker; `Esc` steps back to the list from an inspected buffer.
 
 ## Reverting unsaved edits
 
