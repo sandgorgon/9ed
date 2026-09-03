@@ -155,7 +155,7 @@ func (m *model) replaceView() tui.Node {
 		// Not pluralS (built for "match"/"matches", i.e. an "es" suffix —
 		// wrong for "replaced"/"skipped", which only ever need "d");
 		// phrased to avoid needing a count-sensitive noun at all.
-		summary := fmt.Sprintf("Replace done: %d replaced, %d skipped. Press any key to continue.",
+		summary := fmt.Sprintf("Replace done: %d replaced, %d skipped. Press Esc to continue.",
 			m.replaceCount, m.replaceSkipped)
 		return tui.Box(layout.Vertical,
 			tui.Child(layout.Fill(1), tui.Box(layout.Vertical)),

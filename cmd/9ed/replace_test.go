@@ -212,3 +212,40 @@ func TestSearchKeyEventReplaceRouting(t *testing.T) {
 		t.Errorf("while entering replacement, searchKeyEvent('x') = %#v, want replaceInputMsg{r: 'x'}", got)
 	}
 }
+
+// TestReplaceDoneDismissal regression-tests a bug found live in tmux
+// while chasing an analogous one in the buffer picker (see
+// bufferPickerKeyEvent's own comment for the full mechanism): tui's
+// Dispatch calls Update then render() *before* checking for a focused
+// widget, so whatever key ends m.replaceDone here — transitioning from
+// replaceView's 0 focusables to navView's List — gets redelivered to
+// that freshly-mounted List within the same event. The original "any
+// key continues" dismissal meant Enter, a digit, or 'o' would silently
+// trigger a real Nav action (entering Edit mode, a {n}G digit, an
+// insert) immediately after the summary screen closed. Only Esc is
+// safe to redeliver, since Nav's own listEvent has no bare-Esc case.
+func TestReplaceDoneDismissal(t *testing.T) {
+	newDoneModel := func() *model {
+		return &model{replacing: true, replaceDone: true, cards: []deck.Card{{Title: "X", Kind: "func"}}}
+	}
+
+	t.Run("Esc ends the flow", func(t *testing.T) {
+		m := newDoneModel()
+		mm, _ := m.Update(input.KeyEvent{Key: input.KeyEsc})
+		m = mm.(*model)
+		if m.replacing || m.replaceDone {
+			t.Errorf("replacing=%v replaceDone=%v, want both false after Esc", m.replacing, m.replaceDone)
+		}
+	})
+
+	t.Run("any other key leaves the flow exactly as it was", func(t *testing.T) {
+		for _, ke := range []input.KeyEvent{{Rune: 'j'}, {Rune: 'o'}, {Key: input.KeyEnter}, {Rune: '5'}} {
+			m := newDoneModel()
+			mm, _ := m.Update(ke)
+			m = mm.(*model)
+			if !m.replacing || !m.replaceDone {
+				t.Errorf("key %+v ended the replace-done flow; want only Esc to", ke)
+			}
+		}
+	})
+}

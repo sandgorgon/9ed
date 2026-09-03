@@ -60,6 +60,7 @@ Nav mode:
   r            toggle 'needs-review' flag on current card
   u            revert current card's unsaved body edits
   o / O        insert card below / above
+  b            list other running 9ed buffers
   t            toggle light/dark theme
   ^s           save
   q, ^c        quit
@@ -80,6 +81,12 @@ Browse mode (bare '9ed' or '9ed <dir>'):
   j/k, ↑/↓     move
   enter        open file, or descend into directory
   q, ^c        quit without opening anything
+
+Buffer picker (entered with 'b' from Nav):
+  j/k, ↑/↓     move
+  enter        inspect selected buffer; then type a line, enter to jump it
+  esc          (while inspecting) back to the list
+  q            leave the picker
 `
 
 func main() {
@@ -281,6 +288,20 @@ type model struct {
 	replacePending    [2]int // the current proposed match, valid whenever replacing && !replaceDone
 	replaceCount      int    // accepted so far, for the closing summary
 	replaceSkipped    int    // skipped so far, for the closing summary
+
+	// pickingBuffers/bufferList/bufferCursor/bufferLoading/bufferInspect/
+	// plumbLine/plumbResult are the cross-instance buffer picker's state
+	// (buffers.go, item 8) — 'b' from Nav mode opens it. bufferInspect
+	// is nil while browsing the list; non-nil once an inspectBufferCmd
+	// has resolved for the selected entry (see bufferPickerKeyEvent for
+	// how that split routes keys).
+	pickingBuffers bool
+	bufferList     []discoveredBuffer
+	bufferCursor   int
+	bufferLoading  bool
+	bufferInspect  *bufferStatus
+	plumbLine      string
+	plumbResult    string
 
 	// activeSearch is the last *committed* search pattern (m.query at the
 	// moment Enter confirmed it), kept around after m.searching goes
@@ -703,6 +724,54 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			m.revertCard(m.cursor)
 		}
 
+	case startBufferPickerMsg:
+		m.cancelPendingNav()
+		m.pickingBuffers = true
+		m.bufferList = discoverBuffers(os.Getpid())
+		m.bufferCursor = 0
+		m.bufferLoading = false
+		m.bufferInspect = nil
+		m.plumbLine = ""
+		m.plumbResult = ""
+
+	case bufferPickerUpMsg:
+		m.bufferCursor = max(m.bufferCursor-1, 0)
+
+	case bufferPickerDownMsg:
+		m.bufferCursor = min(m.bufferCursor+1, max(len(m.bufferList)-1, 0))
+
+	case bufferPickerEnterMsg:
+		if len(m.bufferList) == 0 {
+			break
+		}
+		m.bufferLoading = true
+		return m, inspectBufferCmd(m.bufferList[m.bufferCursor].pid)
+
+	case bufferInspectedMsg:
+		m.bufferLoading = false
+		if v.err != nil {
+			m.bufferInspect = &bufferStatus{err: v.err.Error()}
+		} else {
+			m.bufferInspect = &bufferStatus{tag: v.tag}
+		}
+		m.plumbLine = ""
+		m.plumbResult = ""
+
+	case bufferPlumbedMsg:
+		if v.err != nil {
+			m.plumbResult = "error: " + v.err.Error()
+		} else {
+			m.plumbResult = fmt.Sprintf("jumped to line %d", v.line)
+		}
+
+	case bufferPickerBackMsg:
+		// Only ever produced from the list view's own onEvent (see
+		// bufferPickerKeyEvent) — the inspect view's Esc is handled
+		// directly in Update's raw KeyEvent case instead, since it has
+		// no focused widget to produce this Msg from. So m.bufferInspect
+		// is always already nil by the time this fires.
+		m.pickingBuffers = false
+
 	case insertMsg:
 		m.cancelPendingNav()
 		m.gotoLineCursor = nil
@@ -837,6 +906,22 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// unlike editing/noteEditing, there's no "everything else
 			// must reach the TextArea" fallthrough to preserve.
 			if m.replaceDone {
+				// Esc only, not "any key" as originally shipped — found
+				// live while chasing an analogous bug in the buffer
+				// picker (see bufferPickerKeyEvent's comment for the
+				// full mechanism): tui's Dispatch calls Update then
+				// render() *before* checking for a focused widget, so
+				// whatever key ends replaceDone here — transitioning
+				// from this view's 0 focusables to navView's List — gets
+				// redelivered to that freshly-mounted List within the
+				// same event. Nav's own listEvent has no bare-Esc case,
+				// so Esc is the one key guaranteed harmless if
+				// redelivered; almost anything else (Enter, 'o', a
+				// digit) would silently trigger a real Nav action right
+				// after the summary screen closes.
+				if v.Key != input.KeyEsc || v.Mod != 0 {
+					return m, nil
+				}
 				m.replacing = false
 				m.replaceDone = false
 				return m, nil
@@ -929,6 +1014,47 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// containing 't' silently flipped the theme, mid-keystroke.
 			return m, nil
 		}
+		if m.pickingBuffers {
+			if m.bufferInspect != nil {
+				// The inspect sub-view mounts no focused widget (see
+				// pickerView's own comment — same reasoning as
+				// replaceView), so this raw case is the *only* place
+				// its keys can be handled at all, not just a
+				// dual-dispatch guard like the branches below.
+				switch {
+				case v.Key == input.KeyEsc && v.Mod == 0:
+					m.bufferInspect = nil
+					m.plumbLine = ""
+					m.plumbResult = ""
+				case v.Key == input.KeyEnter:
+					if m.plumbLine == "" || m.bufferInspect.err != "" {
+						break
+					}
+					n, err := strconv.Atoi(m.plumbLine)
+					if err != nil || n <= 0 {
+						m.plumbResult = "invalid line number"
+						break
+					}
+					return m, plumbBufferCmd(m.bufferList[m.bufferCursor].pid, n)
+				case v.Key == input.KeyBackspace:
+					if m.plumbLine != "" {
+						m.plumbLine = m.plumbLine[:len(m.plumbLine)-1]
+					}
+				case v.Key == input.KeyNone && v.Rune >= '0' && v.Rune <= '9':
+					m.plumbLine += string(v.Rune)
+				}
+				return m, nil
+			}
+			// List view: the focused List already converts raw keys into
+			// bufferPickerUpMsg/DownMsg/EnterMsg/BackMsg via its own
+			// onEvent (bufferPickerKeyEvent) — tui delivers the same raw
+			// key here too (the same dual-dispatch fact m.searching's own
+			// guard above explains), so this branch exists purely to stop
+			// it from also hitting the bare-'t'/'q' checks below (e.g.
+			// 'q' backing out of the picker would otherwise quit 9ed
+			// entirely instead of just leaving the picker).
+			return m, nil
+		}
 		if v.Rune == 't' {
 			m.toggleTheme()
 			return m, nil
@@ -942,6 +1068,8 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 func (m *model) View() tui.Node {
 	switch {
+	case m.pickingBuffers:
+		return m.pickerView()
 	case m.replacing:
 		return m.replaceView()
 	case m.noteEditing:
@@ -981,7 +1109,7 @@ func (m *model) navView() tui.Node {
 	if m.searching {
 		help = tui.Text(m.searchHelpLine(indices), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   ^s: save   t: theme   q: quit",
+		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -1201,6 +1329,8 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return toggleFlagMsg{flag: flagNeedsReview}
 	case ke.Rune == 'u':
 		return revertMsg{}
+	case ke.Rune == 'b':
+		return startBufferPickerMsg{}
 	case ke.Rune == 'o':
 		return insertBelow
 	case ke.Rune == 'O':
