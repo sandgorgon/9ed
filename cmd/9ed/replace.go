@@ -159,7 +159,7 @@ func (m *model) replaceView() tui.Node {
 			m.replaceCount, m.replaceSkipped)
 		return tui.Box(layout.Vertical,
 			tui.Child(layout.Fill(1), tui.Box(layout.Vertical)),
-			tui.Child(layout.Length(1), tui.Text(summary, theme.MutedText())),
+			tui.Child(layout.Length(1), m.statusBarNode(summary, theme.MutedText())),
 		).Margin(1)
 	}
 
@@ -173,7 +173,7 @@ func (m *model) replaceView() tui.Node {
 		tui.Child(layout.Length(len([]rune(match))), tui.Text(match, searchMatchStyle(theme))),
 		tui.Child(layout.Fill(1), tui.Text(after, cell.Style{})),
 	)
-	prompt := tui.Text(fmt.Sprintf("replace %q with %q?  y: yes   n: no   a: all remaining   q: stop", m.query, m.replaceWith),
+	prompt := m.statusBarNode(fmt.Sprintf("replace %q with %q?  y: yes   n: no   a: all remaining   q: stop", m.query, m.replaceWith),
 		m.helpStyle())
 
 	return tui.Box(layout.Vertical,

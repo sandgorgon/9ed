@@ -11,6 +11,108 @@ import (
 	"github.com/sandgorgon/tui/widget"
 )
 
+// highlightsFor dispatches to a syntax highlighter by the source file's
+// own extension (the same table segmenterFor uses), or nil for any
+// extension with none — currently Markdown, Kyu, and anything
+// segmenterFor falls back to deck.PlainSegmenter for. Go keeps its own
+// go/scanner-based goHighlights (exact, since Go ships a real
+// tokenizer); C/C++ and Bash use the shared regex engine below, per
+// this project's existing tolerance for a "good enough" heuristic
+// rather than a real grammar for those languages — see CSegmenter's and
+// BashSegmenter's own doc comments making the same trade-off for
+// structural segmentation.
+func highlightsFor(ext string, body string, theme style.Theme) []widget.StyleSpan {
+	switch ext {
+	case ".go":
+		return goHighlights(body, theme)
+	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
+		return regexHighlights(body, theme, cLangRe)
+	case ".sh", ".bash":
+		return regexHighlights(body, theme, bashLangRe)
+	default:
+		return nil
+	}
+}
+
+// cLangRe tokenizes C/C++ well enough for coloring, not for correctness
+// — same "good enough heuristic" the CSegmenter comment already accepts
+// for this codebase's non-Go languages. Comment and string alternatives
+// are listed ahead of keyword/number in the top-level alternation
+// deliberately: regexHighlights relies on Go's regexp package resolving
+// alternation leftmost-first (Perl-like, not POSIX longest-match), so a
+// keyword spelled out inside a string literal or a comment is matched
+// by the earlier, wider alternative first and never separately matches
+// the keyword group.
+var cLangRe = regexp.MustCompile(
+	`(?P<comment>//[^\n]*|(?s:/\*.*?\*/))` +
+		`|(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')` +
+		`|(?P<number>\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?[uUlLfF]*\b)` +
+		`|(?P<keyword>\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|_Bool|_Complex|_Imaginary|class|namespace|public|private|protected|template|typename|virtual|override|new|delete|this|true|false|nullptr|using|friend|operator|try|catch|throw|explicit|mutable|constexpr|static_cast|dynamic_cast|const_cast|reinterpret_cast)\b)`,
+)
+
+// bashLangRe tokenizes Bash/POSIX-shell well enough for coloring — the
+// same heuristic trade-off as cLangRe, matching BashSegmenter's own
+// "not a real shell grammar" disclaimer (it doesn't track heredocs
+// either, so a keyword-like word inside one can still get colored).
+var bashLangRe = regexp.MustCompile(
+	`(?P<comment>#[^\n]*)` +
+		`|(?P<string>"(?:\\.|[^"\\])*"|'[^']*')` +
+		`|(?P<number>\b\d+\b)` +
+		`|(?P<keyword>\b(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|function|in|select|time|coproc|return|break|continue|local|export|readonly|declare|typeset|unset|shift|exit|trap|eval|exec|source)\b)`,
+)
+
+// regexHighlights runs spec's combined regex over body once and returns
+// one StyleSpan per match, styled by which of the four named groups
+// (comment/string/number/keyword) matched — the same four semantic
+// roles styleFor already maps for Go, reused here so every highlighted
+// language reads consistently. Byte offsets from the regexp package are
+// translated to the rune offsets widget.TextArea.Highlights expects,
+// same as goHighlights.
+func regexHighlights(body string, theme style.Theme, spec *regexp.Regexp) []widget.StyleSpan {
+	if body == "" {
+		return nil
+	}
+	names := spec.SubexpNames()
+	byteToRune := byteToRuneOffsets(body)
+	var spans []widget.StyleSpan
+	for _, m := range spec.FindAllStringSubmatchIndex(body, -1) {
+		for gi := 1; gi < len(names); gi++ {
+			start, end := m[2*gi], m[2*gi+1]
+			if start < 0 {
+				continue
+			}
+			st, ok := regexGroupStyle(names[gi], theme)
+			if !ok {
+				break
+			}
+			spans = append(spans, widget.StyleSpan{
+				Start: byteToRune[start],
+				End:   byteToRune[end],
+				Style: st,
+			})
+			break
+		}
+	}
+	return spans
+}
+
+// regexGroupStyle maps a regexLangRe named group to the same semantic
+// roles styleFor uses for Go tokens.
+func regexGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
+	switch name {
+	case "comment":
+		return cell.Style{Fg: theme.Muted}, true
+	case "string":
+		return cell.Style{Fg: theme.Success}, true
+	case "number":
+		return cell.Style{Fg: theme.Warning}, true
+	case "keyword":
+		return cell.Style{Fg: theme.Secondary, Attr: cell.AttrBold}, true
+	default:
+		return cell.Style{}, false
+	}
+}
+
 // goHighlights tokenizes body — a single card's own text, standalone,
 // not the whole file — with go/scanner and returns one StyleSpan per
 // styled token, in *rune* offsets relative to body itself (what

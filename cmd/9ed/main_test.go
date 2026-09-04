@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sandgorgon/tui/input"
+	"github.com/sandgorgon/tui/style"
 	"github.com/sandgorgon/tui/tui"
 
 	"github.com/sandgorgon/9ed/deck"
@@ -286,6 +287,54 @@ func TestCardBadges(t *testing.T) {
 		want := "  " + todoGlyph + "  " + needsReviewGlyph + "  " + noteGlyph + "  " + refGlyph + " 1"
 		if got := m.cardBadges(0); got != want {
 			t.Errorf("cardBadges(0) = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCardBadgeStyle(t *testing.T) {
+	theme := style.DefaultDark()
+	cards := []deck.Card{{Kind: "func", Title: "func Foo() error"}}
+
+	t.Run("no badges: plain text style", func(t *testing.T) {
+		m := &model{cards: cards, theme: theme}
+		if got := m.cardBadgeStyle(0); got != theme.Text() {
+			t.Errorf("cardBadgeStyle(0) = %+v, want theme.Text() %+v", got, theme.Text())
+		}
+	})
+
+	t.Run("needs-review flag outranks everything else", func(t *testing.T) {
+		sc := notes.New()
+		sc.ToggleFlag("func", "func Foo() error", flagNeedsReview)
+		sc.ToggleFlag("func", "func Foo() error", flagTodo)
+		sc.Set("func", "func Foo() error", "a note too")
+		m := &model{cards: cards, theme: theme, notesFile: sc, refs: [][]int{{0}}}
+		if got := m.cardBadgeStyle(0); got.Fg != theme.Warning {
+			t.Errorf("cardBadgeStyle(0).Fg = %+v, want theme.Warning %+v", got.Fg, theme.Warning)
+		}
+	})
+
+	t.Run("todo flag alone", func(t *testing.T) {
+		sc := notes.New()
+		sc.ToggleFlag("func", "func Foo() error", flagTodo)
+		m := &model{cards: cards, theme: theme, notesFile: sc}
+		if got := m.cardBadgeStyle(0); got.Fg != theme.Accent {
+			t.Errorf("cardBadgeStyle(0).Fg = %+v, want theme.Accent %+v", got.Fg, theme.Accent)
+		}
+	})
+
+	t.Run("a reference alone", func(t *testing.T) {
+		m := &model{cards: cards, theme: theme, refs: [][]int{{0}}}
+		if got := m.cardBadgeStyle(0); got.Fg != theme.Info {
+			t.Errorf("cardBadgeStyle(0).Fg = %+v, want theme.Info %+v", got.Fg, theme.Info)
+		}
+	})
+
+	t.Run("a note alone", func(t *testing.T) {
+		sc := notes.New()
+		sc.Set("func", "func Foo() error", "why this exists")
+		m := &model{cards: cards, theme: theme, notesFile: sc}
+		if got := m.cardBadgeStyle(0); got.Fg != theme.Secondary {
+			t.Errorf("cardBadgeStyle(0).Fg = %+v, want theme.Secondary %+v", got.Fg, theme.Secondary)
 		}
 	})
 }

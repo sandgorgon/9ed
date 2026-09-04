@@ -532,6 +532,23 @@ func (m *model) statusLine(rest string) string {
 	return rest
 }
 
+// chromeBg is the background shared by every mode's bottom status/help
+// bar and, in Edit mode, the line-number gutter (see editView) — the
+// theme's own Border color, doubling here as a "this is UI chrome, not
+// document content" tint so both read as one consistent panel distinct
+// from the body/list text around them.
+func (m *model) chromeBg() cell.Style {
+	return cell.Style{Bg: m.theme.Border}
+}
+
+// statusBarNode wraps text in widget.StatusBar instead of a bare
+// tui.Text so the bottom bar's background fills the row's full width
+// (chromeBg) rather than stopping at the last painted glyph the way a
+// plain Text node's paint does.
+func (m *model) statusBarNode(text string, fg cell.Style) tui.Node {
+	return widget.StatusBar([]widget.Segment{{Text: text, Style: fg}}, nil, nil, m.chromeBg())
+}
+
 func (m *model) Init() tui.Cmd {
 	return tui.Batch(waitForP9Write(m.writes), waitForP9Goto(m.gotos))
 }
@@ -1096,6 +1113,7 @@ func (m *model) navView() tui.Node {
 		indices = m.filteredIndices()
 	}
 	titles := make([]string, len(indices))
+	rowStyles := make([]cell.Style, len(indices))
 	cursorInList := 0
 	for pos, i := range indices {
 		c := m.cards[i]
@@ -1104,18 +1122,19 @@ func (m *model) navView() tui.Node {
 			mark = dirtyGlyph // unsaved body or note change
 		}
 		titles[pos] = fmt.Sprintf("%s %-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
+		rowStyles[pos] = m.cardBadgeStyle(i)
 		if i == m.cursor {
 			cursorInList = pos
 		}
 	}
 
-	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: m.theme}, m.listEvent)
+	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: m.theme, RowStyles: rowStyles}, m.listEvent)
 
 	var help tui.Node
 	if m.searching {
-		help = tui.Text(m.searchHelpLine(indices), m.helpStyle())
+		help = m.statusBarNode(m.searchHelpLine(indices), m.helpStyle())
 	} else {
-		help = tui.Text(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit",
+		help = m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit",
 			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
 	}
 
@@ -1178,6 +1197,34 @@ func (m *model) cardBadges(i int) string {
 	return badges
 }
 
+// cardBadgeStyle returns the Nav-mode list row tint for card i, keyed to
+// the most prominent thing cardBadges would show for it (same priority
+// order: a user-set flag outranks the passive note/reference badges) —
+// or the theme's plain Text() when the card has no badges at all. tui's
+// widget.List is row-granular by design (see tui's own
+// docs/proposals/text-region-styling.md, "List being row-granular
+// already needs no sub-row span concept"), so individual badge glyphs
+// within one row can't each carry their own color — tinting the whole
+// row by its most important badge is the closest a row-granular List
+// can get to "badges read as distinct."
+func (m *model) cardBadgeStyle(i int) cell.Style {
+	theme := m.theme
+	c := m.cards[i]
+	switch {
+	case m.notesFile.HasFlag(c.Kind, c.Title, flagNeedsReview):
+		return cell.Style{Fg: theme.Warning}
+	case m.notesFile.HasFlag(c.Kind, c.Title, flagTodo):
+		return cell.Style{Fg: theme.Accent}
+	case i < len(m.refs) && len(m.refs[i]) > 0:
+		return cell.Style{Fg: theme.Info}
+	default:
+		if body, ok := m.notesFile.Get(c.Kind, c.Title); ok && body != "" {
+			return cell.Style{Fg: theme.Secondary}
+		}
+	}
+	return theme.Text()
+}
+
 func pluralS(n int) string {
 	if n == 1 {
 		return ""
@@ -1198,8 +1245,8 @@ func (m *model) editView() tui.Node {
 	body := m.cardBody(m.cursor)
 
 	var highlights []widget.StyleSpan
-	if card.Kind != "" && filepath.Ext(m.path) == ".go" {
-		highlights = goHighlights(body, theme)
+	if card.Kind != "" {
+		highlights = highlightsFor(filepath.Ext(m.path), body, theme)
 	}
 	if m.activeSearch != "" {
 		if re, ok := searchRegexp(m.activeSearch); ok {
@@ -1232,8 +1279,9 @@ func (m *model) editView() tui.Node {
 	// paintGutterRow), so it's offset by the card's own starting line,
 	// computed once here rather than per visible row.
 	firstLine := cardFirstLine(m.src, card.Span[0])
+	gutterStyle := cell.Style{Fg: theme.Muted, Bg: theme.Border}
 	gutter := func(lineIdx int) (string, cell.Style) {
-		return strconv.Itoa(firstLine + lineIdx), theme.MutedText()
+		return strconv.Itoa(firstLine + lineIdx), gutterStyle
 	}
 
 	textarea := widget.TextArea(widget.TextAreaOptions{
@@ -1269,7 +1317,7 @@ func (m *model) editView() tui.Node {
 	// setJumpTarget) — Span is unchanged there, so without jumpGen the
 	// existing widget instance would be reused and never see the new
 	// InitialCursor at all.
-	help := tui.Text(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^s: save   ^c: quit", m.path, m.dirtyMark(), card.Kind)),
+	help := m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^s: save   ^c: quit", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 
 	return tui.Box(layout.Vertical,
@@ -1300,7 +1348,7 @@ func (m *model) noteView() tui.Node {
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
 	}).Key(card.Span)
 
-	help := tui.Text(m.statusLine(fmt.Sprintf("Note for: %s%s  —  esc: back   ^s: save", card.Title, m.dirtyMark())), m.helpStyle())
+	help := m.statusBarNode(m.statusLine(fmt.Sprintf("Note for: %s%s  —  esc: back   ^s: save", card.Title, m.dirtyMark())), m.helpStyle())
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), textarea),

@@ -259,7 +259,7 @@ func (m *model) pickerView() tui.Node {
 		if m.plumbResult != "" {
 			prompt += "   " + m.plumbResult
 		}
-		help := tui.Text(prompt+"  —  enter: jump   esc: back", m.helpStyle())
+		help := m.statusBarNode(prompt+"  —  enter: jump   esc: back", m.helpStyle())
 
 		return tui.Box(layout.Vertical,
 			tui.Child(layout.Length(1), header),
@@ -284,7 +284,7 @@ func (m *model) pickerView() tui.Node {
 	if m.bufferLoading {
 		status += "   connecting..."
 	}
-	help := tui.Text(status+"  —  j/k: move   enter: inspect   q: back", theme.MutedText())
+	help := m.statusBarNode(status+"  —  j/k: move   enter: inspect   q: back", theme.MutedText())
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),

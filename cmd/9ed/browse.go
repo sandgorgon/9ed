@@ -198,7 +198,7 @@ func (m *browseModel) View() tui.Node {
 	if m.err != "" {
 		status = fmt.Sprintf("%s  —  error: %s   q: quit", m.cwd, m.err)
 	}
-	help := tui.Text(status, cell.Style{Fg: cell.ANSIColor(8)})
+	help := widget.StatusBar([]widget.Segment{{Text: status, Style: cell.Style{Fg: cell.ANSIColor(8)}}}, nil, nil, cell.Style{Bg: m.theme.Border})
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),
