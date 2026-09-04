@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- `cmd/9ed`: gave Nav mode's status bar and Edit mode's line-number
+  gutter their own background color (`theme.Border`) instead of plain
+  unstyled text — the status bar now renders through `tui`'s
+  `widget.StatusBar` (already built into `tui`, just unused until now)
+  so its background fills the whole row width instead of stopping at
+  the last painted glyph, and the gutter picks up the same tint via
+  its `Gutter` closure, so both read as one consistent "this is UI
+  chrome, not document content" panel. Nav mode's list rows also tint
+  by their most prominent badge (`needs-review` → Warning, `todo` →
+  Accent, a reference → Info, a note → Secondary) via
+  `ListOptions.RowStyles` — `tui`'s `List` is row-granular by design
+  (confirmed in `tui`'s own `docs/proposals/text-region-styling.md`:
+  "List being row-granular already needs no sub-row span concept"), so
+  individual badge glyphs within one row can't each carry their own
+  color; whole-row tinting by the most important badge is the closest
+  a row-granular `List` can get to "badges read as distinct."
+- `cmd/9ed`: syntax highlighting extends from Go-only to C/C++ and
+  Bash, via a new regex-based tokenizer (`cLangRe`/`bashLangRe` in
+  `highlight.go`) reusing the same four semantic color roles
+  (keyword/comment/string/number) `goHighlights` already used for Go —
+  a "good enough heuristic," not a real grammar, matching
+  `CSegmenter`'s and `BashSegmenter`'s own existing tolerance for that
+  trade-off on non-Go languages. Markdown headings display their
+  actual level (`H1`..`H6`) in Nav mode's Kind column and Edit mode's
+  status line instead of a flat "heading" — see `deck`'s own
+  `MarkdownSegmenter`, which now produces that Kind directly.
+
 ## 0.3.0 - 2026-09-02
 
 - `cmd/9ed`: `/` now searches card bodies, not just titles, and matches

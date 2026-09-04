@@ -27,8 +27,10 @@ browsing](#directory-browsing) below), Acme-style `path:line` plumbing
 (see [Plumbing](#plumbing) below), a cross-instance buffer picker (`b`, see [Cross-instance buffer
 picker](#cross-instance-buffer-picker) below), a per-card revert for
 unsaved body edits (`u`, see [Reverting unsaved
-edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers,
-atomic save, a runtime light/dark theme toggle (`t`), a 9P server
+edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers
+in a themed gutter, syntax highlighting for Go/C/C++/Bash (see [Syntax
+highlighting](#syntax-highlighting) below), atomic save, a runtime
+light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
 `/goto`, namespace-aware open/save (see
 [Namespace-aware file I/O](#namespace-aware-file-io) below), and card
@@ -75,6 +77,17 @@ go build -o 9ed ./cmd/9ed
   full parser — this project doesn't try to live in C/C++/Bash/Haskell as
   deeply as it does in Go and Haskell as target languages for actual use.
 
+## Syntax highlighting
+
+Edit mode highlights Go, C/C++, and Bash — keywords, comments, string/
+char literals, and numeric literals, each in a fixed theme color role
+shared across all three languages. Go's highlighter tokenizes with
+`go/scanner` (exact, since Go ships a real one); C/C++ and Bash use a
+combined regexp instead — a "good enough heuristic," not a real
+grammar, the same trade-off `CSegmenter`/`BashSegmenter` already
+accept for structural segmentation. Markdown, Haskell, and `kyu` have
+no highlighter yet.
+
 ## Namespace-aware file I/O
 
 Outside `9sh` — or under a `9sh` that wasn't started with `-listen-unix` —
@@ -113,7 +126,10 @@ Nav mode's list line also shows two badges 9ed computes on its own:
 `✎` when a card has a note, and `↩ N` when N other cards mention that
 card's name — a lexical, not semantic, cross-reference scan (only
 `GoSegmenter` has a real parser; the others use structural heuristics),
-so it's a hint, not a guarantee.
+so it's a hint, not a guarantee. Each row also tints by its most
+prominent badge (`needs-review`, then `todo`, then a reference, then a
+note) so a flagged or annotated card stands out from a plain one at a
+glance, not just by its glyph.
 
 The `.9an` sidecar is itself plain markdown — a `# kind: title` heading
 per annotated card, an optional `flags: ...` line, then the note body —
