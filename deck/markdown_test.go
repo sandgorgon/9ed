@@ -24,26 +24,26 @@ func TestMarkdownSegmenter(t *testing.T) {
 		{
 			name: "heading at start, no preamble",
 			src:  "# Title\n\nbody text\n",
-			want: []Card{{Kind: "heading", Title: "Title", Name: "Title"}},
+			want: []Card{{Kind: "H1", Title: "Title", Name: "Title"}},
 		},
 		{
 			name: "preamble then headings",
 			src:  "intro text\n\n# One\nbody one\n\n## Two\nbody two\n",
 			want: []Card{
 				{Kind: "preamble", Title: "intro text"},
-				{Kind: "heading", Title: "One", Name: "One"},
-				{Kind: "heading", Title: "Two", Name: "Two"},
+				{Kind: "H1", Title: "One", Name: "One"},
+				{Kind: "H2", Title: "Two", Name: "Two"},
 			},
 		},
 		{
 			name: "bare heading, empty title",
 			src:  "###\nbody\n",
-			want: []Card{{Kind: "heading", Title: ""}},
+			want: []Card{{Kind: "H3", Title: ""}},
 		},
 		{
 			name: "hash inside fenced code block is not a heading",
 			src:  "# Real Heading\n\n```python\n# not a heading\n```\n\nmore text\n",
-			want: []Card{{Kind: "heading", Title: "Real Heading", Name: "Real Heading"}},
+			want: []Card{{Kind: "H1", Title: "Real Heading", Name: "Real Heading"}},
 		},
 		{
 			name: "seven hashes is not a heading",
@@ -55,7 +55,7 @@ func TestMarkdownSegmenter(t *testing.T) {
 			src:  "intro\r\n# Heading\r\nbody\r\n",
 			want: []Card{
 				{Kind: "preamble", Title: "intro"},
-				{Kind: "heading", Title: "Heading", Name: "Heading"},
+				{Kind: "H1", Title: "Heading", Name: "Heading"},
 			},
 		},
 	}

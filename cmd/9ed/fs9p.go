@@ -5,7 +5,7 @@
 //	/goto               write-only; jump to a line (plumb.go, item 3)
 //	/cards/<n>/title
 //	/cards/<n>/body     writable as of M8 — see cardBodyFile
-//	/cards/<n>/lang     the card's Kind (e.g. "func", "heading") — the
+//	/cards/<n>/lang     the card's Kind (e.g. "func", "H2") — the
 //	                    per-card structural role, not the file's
 //	                    language (which is constant across every card
 //	                    in one buffer and so isn't worth a field here)

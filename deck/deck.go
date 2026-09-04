@@ -15,7 +15,7 @@ type Card struct {
 	// Span is the card's [start, end) byte range into the source that
 	// produced it.
 	Span [2]int
-	// Kind names the card's structural role (e.g. "func", "heading",
+	// Kind names the card's structural role (e.g. "func", "H2",
 	// "preamble", "import"). Meaning is specific to the Segmenter that
 	// produced the card.
 	Kind string

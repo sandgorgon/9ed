@@ -108,7 +108,7 @@ func TestReferences(t *testing.T) {
 			"See Getting Started above for setup steps.\n",
 		)
 		cards := []Card{
-			{Kind: "heading", Name: "Getting Started", Span: spans[0]},
+			{Kind: "H1", Name: "Getting Started", Span: spans[0]},
 			{Kind: "preamble", Name: "", Span: spans[1]},
 		}
 		refs := References(src, cards)

@@ -2,6 +2,7 @@ package deck
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ func (MarkdownSegmenter) Segment(src []byte) []Card {
 	}
 	type heading struct {
 		start int
+		level int
 		title string
 	}
 	var headings []heading
@@ -42,8 +44,8 @@ func (MarkdownSegmenter) Segment(src []byte) []Card {
 		case isFenceDelimiter(text):
 			inFence = !inFence
 		case !inFence:
-			if title, ok := markdownHeadingTitle(text); ok {
-				headings = append(headings, heading{start: pos, title: title})
+			if title, level, ok := markdownHeadingTitle(text); ok {
+				headings = append(headings, heading{start: pos, level: level, title: title})
 			}
 		}
 		pos = next
@@ -74,30 +76,39 @@ func (MarkdownSegmenter) Segment(src []byte) []Card {
 		// other segmenters' Names. A bare heading's empty Title yields
 		// an empty Name too, which is already Card.Name's "no name"
 		// value — no special-casing needed.
-		cards = append(cards, Card{Title: h.title, Span: [2]int{h.start, end}, Kind: "heading", Name: h.title})
+		//
+		// Kind is "H1".."H6", not a flat "heading" — the level is
+		// structurally meaningful (Nav mode's Kind column and Edit
+		// mode's status line show it directly), and it's also what
+		// notes/flags key against (see notes.Sidecar), so a heading's
+		// level changing on a later edit (promoting "## Foo" to "# Foo")
+		// is treated as becoming a different card identity, the same as
+		// a renamed func or a moved struct would be elsewhere in this
+		// package — not a special case.
+		cards = append(cards, Card{Title: h.title, Span: [2]int{h.start, end}, Kind: "H" + strconv.Itoa(h.level), Name: h.title})
 	}
 	return cards
 }
 
 // markdownHeadingTitle reports whether line is an ATX heading (1-6 leading
 // '#'s followed by a space/tab, or nothing but the '#'s themselves) and,
-// if so, its trimmed title text with the leading #s and whitespace
-// removed.
-func markdownHeadingTitle(line string) (title string, ok bool) {
+// if so, its level (the number of leading '#'s) and trimmed title text
+// with the leading #s and whitespace removed.
+func markdownHeadingTitle(line string) (title string, level int, ok bool) {
 	i := 0
 	for i < len(line) && i < 6 && line[i] == '#' {
 		i++
 	}
 	if i == 0 {
-		return "", false
+		return "", 0, false
 	}
 	if i == len(line) {
-		return "", true // a bare "#".."######" line: a heading with an empty title
+		return "", i, true // a bare "#".."######" line: a heading with an empty title
 	}
 	if line[i] != ' ' && line[i] != '\t' {
-		return "", false // a 7th '#', or a non-heading run of '#'s glued to text
+		return "", 0, false // a 7th '#', or a non-heading run of '#'s glued to text
 	}
-	return strings.TrimSpace(line[i:]), true
+	return strings.TrimSpace(line[i:]), i, true
 }
 
 // isFenceDelimiter reports whether line opens or closes a fenced code
