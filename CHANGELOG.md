@@ -28,6 +28,16 @@
   actual level (`H1`..`H6`) in Nav mode's Kind column and Edit mode's
   status line instead of a flat "heading" — see `deck`'s own
   `MarkdownSegmenter`, which now produces that Kind directly.
+- Bumped `tui` v0.4.0 → v0.4.1, which fixed
+  [`tui#22`](https://github.com/sandgorgon/tui/issues/22) — filed
+  after the gutter-coloring work above showed a real defect:
+  `TextArea`'s `Gutter` padding/separator columns painted with a
+  hardcoded `theme.MutedText()` instead of the caller's own per-row
+  style, leaving a one-column seam of default background through an
+  otherwise Border-tinted gutter panel. `paintGutterRow` now derives
+  that style from `gutter`'s own return value instead; no change
+  needed on this side beyond the version bump. Re-verified live in
+  tmux: the seam is gone.
 
 ## 0.3.0 - 2026-09-02
 
