@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-03
+
 - `cmd/9ed`: gave Nav mode's status bar and Edit mode's line-number
   gutter their own background color (`theme.Border`) instead of plain
   unstyled text — the status bar now renders through `tui`'s
