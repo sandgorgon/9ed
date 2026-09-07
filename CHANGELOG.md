@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-09-07
+
 - `cmd/9ed`: syntax highlighting now covers all six of `segmenterFor`'s
   target languages, closing the gap the v0.4.0 entry below left open.
   `kyu` gets its own real-tokenizer highlighter (`kyuHighlights`, via
