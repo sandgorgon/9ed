@@ -18,6 +18,21 @@
   blockquote — since its inline constructs don't fit the four-role
   scheme; `regexHighlights` now takes a group-to-style function so both
   role sets can share the same matching engine.
+- Bumped `9sh` v0.4.0 → v0.4.20. `kyu/ast`, `kyu/token`, and
+  `kyu/parser` are unchanged across that range, so `KyuSegmenter`'s
+  type switches (see the v0.4.0 bump entry further down) needed no
+  re-audit. `kyu/lexer` picked up two real fixes directly relevant to
+  the `kyuHighlights` work above: a digit-led external-command name
+  (`%9ed foo`, `$9term foo` — the naming convention this whole tool
+  family uses) previously mis-lexed as modulo instead of the
+  external-call sigil, and a bare path right after a command name
+  (`%cat /etc/hosts`) previously mis-lexed as division. Both would have
+  made `KyuSegmenter` (and now `kyuHighlights`) fall back to an
+  unstructured card on otherwise-valid kyu source. Pulled `tui` v0.4.1
+  → v0.5.1 transitively (`9sh` v0.4.20 requires it); its own changes in
+  that range are additive (a `FocusAware` interface, `Terminal` widget
+  input handling) and don't touch any API `cmd/9ed` uses — full build
+  and test suite pass unaffected.
 
 ## 0.5.0 - 2026-09-07
 
