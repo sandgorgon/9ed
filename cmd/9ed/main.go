@@ -38,6 +38,15 @@ import (
 // "dev" for a plain `go build`/`go run`.
 var version = "dev"
 
+// enableMouse/disableMouse turn on/off SGR mouse reporting (mode 1006)
+// around tui.App.Run — App.Run doesn't enable mouse itself, since not
+// every app wants click-to-focus, so an app that does has to ask for
+// it; see tui's examples/gallery for the identical convention.
+const (
+	enableMouse  = "\x1b[?1000h\x1b[?1006h"
+	disableMouse = "\x1b[?1000l\x1b[?1006l"
+)
+
 const helpText = `usage: 9ed <file>
        9ed <file>:<line>
        9ed [dir]
@@ -65,6 +74,8 @@ Nav mode:
   {n}G         goto line n
   PgUp/PgDn    page up/down
   /            search titles and bodies (regexp); ^r for replace
+  click        select and edit the clicked card
+  wheel        scroll up/down
   enter        edit current card
   n            edit current card's note
   f            toggle 'todo' flag on current card
@@ -200,6 +211,8 @@ func run() int {
 	}
 
 	app := tui.NewApp(m, 80, 24)
+	fmt.Fprint(os.Stdout, enableMouse)
+	defer fmt.Fprint(os.Stdout, disableMouse)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
 		return 1
@@ -611,6 +624,13 @@ const (
 const navPageSize = 10
 
 type enterEditMsg struct{}
+
+// clickCardMsg is produced by listEvent on a left mouse click on a
+// card row — idx is already translated from a screen row into the
+// clicked item's index by widget.List.HandleEvent. Both selects and
+// opens that card: the mouse equivalent of moving the cursor there
+// with j/k then pressing Enter.
+type clickCardMsg struct{ idx int }
 type editChangedMsg struct{ value string }
 
 // cursorMovedMsg is produced by editView's TextArea OnCursorChange
@@ -704,6 +724,15 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		if len(m.cards) > 0 {
 			m.editing = true
 		}
+
+	case clickCardMsg:
+		m.cancelPendingNav()
+		if v.idx < 0 || v.idx >= len(m.cards) {
+			break
+		}
+		m.cursor = v.idx
+		m.gotoLineCursor = nil
+		m.editing = true
 
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
@@ -1366,6 +1395,9 @@ func (m *model) noteView() tui.Node {
 // j/k/g/G/o/O/digits become query text — so that case is split off into
 // its own searchKeyEvent entirely, checked first.
 func (m *model) listEvent(e input.Event) tui.Msg {
+	if me, ok := e.(input.MouseEvent); ok {
+		return m.listMouseEvent(me)
+	}
 	ke, ok := e.(input.KeyEvent)
 	if !ok {
 		return nil
@@ -1406,6 +1438,26 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return navPageUp
 	case ke.Key == input.KeyPgDown:
 		return navPageDown
+	}
+	return nil
+}
+
+// listMouseEvent is listEvent's mouse half — a no-op while searching,
+// same as the keyboard nav keys it mirrors. me.Y is already translated
+// from a screen row into the clicked/scrolled-over item's index by
+// widget.List.HandleEvent, though only clickCardMsg (left click) uses
+// it; a wheel tick just moves the cursor by one, like j/k.
+func (m *model) listMouseEvent(me input.MouseEvent) tui.Msg {
+	if m.searching {
+		return nil
+	}
+	switch me.Button {
+	case input.MouseLeft:
+		return clickCardMsg{idx: me.Y}
+	case input.MouseWheelUp:
+		return navUp
+	case input.MouseWheelDown:
+		return navDown
 	}
 	return nil
 }
