@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-09-07
+
 - `cmd/9ed`: Nav mode's card list now accepts a mouse click to select
   and open a card — the mouse equivalent of moving the cursor there
   with `j`/`k` then pressing `Enter` — and the wheel to scroll one
