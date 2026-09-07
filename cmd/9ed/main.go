@@ -266,6 +266,15 @@ type model struct {
 	editing     bool
 	noteEditing bool // see noteView; mutually exclusive with editing
 
+	// showingHelp/helpCursor are the '?' full-screen keybinding
+	// reference (see helpView) — only ever entered from bare Nav mode,
+	// same as pickingBuffers/replacing/noteEditing, so mutually
+	// exclusive with all of them. helpCursor drives its List's scroll
+	// position exactly like m.cursor drives navView's, just scrolling
+	// static reference text instead of selecting a card.
+	showingHelp bool
+	helpCursor  int
+
 	// pendingG is true right after a lone 'g' in Nav mode, waiting to
 	// see if a second 'g' completes vim's "go to first card" — reset by
 	// every other Update branch that represents a real alternate
@@ -623,6 +632,18 @@ const (
 // feel like a page jump.
 const navPageSize = 10
 
+// helpMsg is the '?' help screen's List onEvent output (see helpEvent)
+// — read-only content, so unlike navMsg it only ever scrolls, never
+// selects or edits anything.
+type helpMsg int
+
+const (
+	helpUp helpMsg = iota
+	helpDown
+	helpPageUp
+	helpPageDown
+)
+
 type enterEditMsg struct{}
 
 // clickCardMsg is produced by listEvent on a left mouse click on a
@@ -709,6 +730,19 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		case navPageDown:
 			m.cancelPendingNav()
 			m.cursor = min(m.cursor+navPageSize, max(len(m.cards)-1, 0))
+		}
+
+	case helpMsg:
+		last := len(helpLines()) - 1
+		switch v {
+		case helpUp:
+			m.helpCursor = max(m.helpCursor-1, 0)
+		case helpDown:
+			m.helpCursor = min(m.helpCursor+1, max(last, 0))
+		case helpPageUp:
+			m.helpCursor = max(m.helpCursor-navPageSize, 0)
+		case helpPageDown:
+			m.helpCursor = min(m.helpCursor+navPageSize, max(last, 0))
 		}
 
 	case navDigitMsg:
@@ -1112,6 +1146,25 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// entirely instead of just leaving the picker).
 			return m, nil
 		}
+		if m.showingHelp {
+			// Esc, 'q', or '?' again all close it — mirrors the buffer
+			// picker's list view (bare-key checks below must never see
+			// these keys) and, unlike replaceDone's single-key-only
+			// guard, there's no re-dispatch-into-a-freshly-mounted-
+			// widget hazard here: helpView's own List remounts into
+			// exactly the same navView List on close (same tree
+			// position), so a redelivered close key would at worst be a
+			// harmless miss in listEvent's switch.
+			if (v.Key == input.KeyEsc && v.Mod == 0) || v.Rune == 'q' || v.Rune == '?' {
+				m.showingHelp = false
+			}
+			return m, nil
+		}
+		if v.Rune == '?' {
+			m.showingHelp = true
+			m.helpCursor = 0
+			return m, nil
+		}
 		if v.Rune == 't' {
 			m.toggleTheme()
 			return m, nil
@@ -1125,6 +1178,8 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 
 func (m *model) View() tui.Node {
 	switch {
+	case m.showingHelp:
+		return m.helpView()
 	case m.pickingBuffers:
 		return m.pickerView()
 	case m.replacing:
@@ -1390,6 +1445,163 @@ func (m *model) noteView() tui.Node {
 		tui.Child(layout.Fill(1), textarea),
 		tui.Child(layout.Length(1), help),
 	).Margin(1)
+}
+
+// helpSection is one grouped block of the '?' help screen's content —
+// a header naming the mode it documents, followed by that mode's own
+// {keys, description} rows. Every other view's own status line only
+// ever shows *its* mode's bindings (there's no room for more); this is
+// the one place they're all gathered so a "what can I press right
+// now" reflex works everywhere, not just in Nav.
+type helpSection struct {
+	header string
+	rows   [][2]string
+}
+
+// helpSections is static — it documents 9ed's own key bindings, not
+// anything about the currently open file or model state — so unlike
+// every render-time slice elsewhere in this file (navView's titles,
+// editView's highlights, ...) it's a package-level var built once,
+// not recomputed per frame.
+var helpSections = []helpSection{
+	{"GLOBAL (any mode)", [][2]string{
+		{"^s", "save"},
+		{"^c", "quit"},
+	}},
+	{"NAV (default view)", [][2]string{
+		{"j/k, up/down", "move"},
+		{"gg / G", "first / last card"},
+		{"{n}G", "go to line n"},
+		{"PgUp/PgDn", "page up/down"},
+		{"enter", "edit card"},
+		{"o / O", "insert card below / above"},
+		{"n", "edit note"},
+		{"f", "toggle todo flag"},
+		{"r", "toggle needs-review flag"},
+		{"u", "revert card"},
+		{"/", "search"},
+		{"b", "buffer picker"},
+		{"t", "toggle theme"},
+		{"q", "quit"},
+		{"?", "toggle this help"},
+	}},
+	{"EDIT", [][2]string{
+		{"esc", "back to nav"},
+		{"^up / ^down", "prev / next card"},
+		{"^n / ^p", "next / prev search match"},
+		{"^s", "save"},
+	}},
+	{"SEARCH (/)", [][2]string{
+		{"(type)", "filter by title, or a pattern"},
+		{"^r", "switch pattern / replacement field"},
+		{"enter", "jump to match, or start replace"},
+		{"esc", "cancel"},
+	}},
+	{"REPLACE (confirm walk)", [][2]string{
+		{"y", "replace this match"},
+		{"n", "skip this match"},
+		{"a", "replace all remaining"},
+		{"q / esc", "stop"},
+	}},
+	{"NOTE", [][2]string{
+		{"esc", "back to nav"},
+		{"^s", "save"},
+	}},
+	{"BUFFER PICKER (b)", [][2]string{
+		{"j/k, up/down", "move"},
+		{"enter", "inspect"},
+		{"esc / q", "back"},
+	}},
+	{"BUFFER INSPECT", [][2]string{
+		{"enter", "jump to line"},
+		{"esc", "back"},
+	}},
+}
+
+// helpLines flattens helpSections into one row per List item, a blank
+// separator between sections, and reports which rows are section
+// headers (for helpView's styling) — parallel slices rather than a
+// single []struct so callers that only need the count (helpMsg's
+// scroll-clamping in Update) don't pay for building styles they'll
+// throw away.
+func helpLines() []string {
+	lines, _ := helpLinesAndHeaders()
+	return lines
+}
+
+func helpLinesAndHeaders() (lines []string, isHeader []bool) {
+	for i, sec := range helpSections {
+		if i > 0 {
+			lines = append(lines, "")
+			isHeader = append(isHeader, false)
+		}
+		lines = append(lines, sec.header)
+		isHeader = append(isHeader, true)
+		for _, row := range sec.rows {
+			lines = append(lines, fmt.Sprintf("  %-14s %s", row[0], row[1]))
+			isHeader = append(isHeader, false)
+		}
+	}
+	return lines, isHeader
+}
+
+// helpView renders the '?' full-screen keybinding reference — entered
+// and left only from bare Nav mode (see the input.KeyEvent case in
+// Update), so, like noteView/pickerView, it's a complete swap of
+// navView rather than an overlay on top of it. A Frameless, read-only
+// List (see helpEvent) rather than static Text: helpLines runs well
+// past a typical terminal's height, and List's scroll-follows-cursor
+// behavior is exactly what a long reference needs, for free.
+func (m *model) helpView() tui.Node {
+	theme := m.theme
+	lines, isHeader := helpLinesAndHeaders()
+
+	styles := make([]cell.Style, len(lines))
+	for i, header := range isHeader {
+		if header {
+			styles[i] = cell.Style{Fg: theme.Accent}
+		} else {
+			styles[i] = theme.Text()
+		}
+	}
+
+	list := widget.List(lines, m.helpCursor, widget.ListOptions{Theme: theme, RowStyles: styles, Frameless: true}, m.helpEvent)
+	help := m.statusBarNode(m.statusLine("9ed keybindings  —  j/k: scroll   esc/q/?: close"), m.helpStyle())
+
+	return tui.Box(layout.Vertical,
+		tui.Child(layout.Fill(1), list),
+		tui.Child(layout.Length(1), help),
+	).Margin(1)
+}
+
+// helpEvent is helpView's List onEvent — read-only content, so unlike
+// listEvent it only ever scrolls (helpMsg), never selects or edits
+// anything.
+func (m *model) helpEvent(e input.Event) tui.Msg {
+	if me, ok := e.(input.MouseEvent); ok {
+		switch me.Button {
+		case input.MouseWheelUp:
+			return helpUp
+		case input.MouseWheelDown:
+			return helpDown
+		}
+		return nil
+	}
+	ke, ok := e.(input.KeyEvent)
+	if !ok {
+		return nil
+	}
+	switch {
+	case ke.Key == input.KeyUp || ke.Rune == 'k':
+		return helpUp
+	case ke.Key == input.KeyDown || ke.Rune == 'j':
+		return helpDown
+	case ke.Key == input.KeyPgUp:
+		return helpPageUp
+	case ke.Key == input.KeyPgDown:
+		return helpPageDown
+	}
+	return nil
 }
 
 // listEvent is the List widget's onEvent for Nav mode. While searching
