@@ -192,7 +192,7 @@ func (m *browseModel) View() tui.Node {
 		}
 		titles[i] = name
 	}
-	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: m.theme}, m.listEvent)
+	list := widget.List(titles, m.cursor, widget.ListOptions{Theme: m.theme, Frameless: true}, m.listEvent)
 
 	status := fmt.Sprintf("%s  (%d entries)  —  j/k: move   enter: open   q: quit", m.cwd, len(m.entries))
 	if m.err != "" {

@@ -272,7 +272,7 @@ func (m *model) pickerView() tui.Node {
 	for i, b := range m.bufferList {
 		titles[i] = fmtBufferEntry(b)
 	}
-	list := widget.List(titles, m.bufferCursor, widget.ListOptions{Theme: theme}, func(e input.Event) tui.Msg {
+	list := widget.List(titles, m.bufferCursor, widget.ListOptions{Theme: theme, Frameless: true}, func(e input.Event) tui.Msg {
 		ke, ok := e.(input.KeyEvent)
 		if !ok {
 			return nil

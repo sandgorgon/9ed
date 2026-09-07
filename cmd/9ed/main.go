@@ -1162,7 +1162,7 @@ func (m *model) navView() tui.Node {
 		}
 	}
 
-	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: m.theme, RowStyles: rowStyles}, m.listEvent)
+	list := widget.List(titles, cursorInList, widget.ListOptions{Theme: m.theme, RowStyles: rowStyles, Frameless: true}, m.listEvent)
 
 	var help tui.Node
 	if m.searching {
@@ -1330,6 +1330,7 @@ func (m *model) editView() tui.Node {
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
+		Frameless:  true,
 	}).Key(editKey{card.Span, m.jumpGen})
 	// Keyed by the card's own Span, not m.cursor — TextArea's Value is
 	// only applied at mount (tui's reconciler otherwise matches by tree
@@ -1380,6 +1381,7 @@ func (m *model) noteView() tui.Node {
 		// Same reasoning as editView's TextArea: must not be plain Esc,
 		// or the m.noteEditing case in Update never sees it.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
+		Frameless:  true,
 	}).Key(card.Span)
 
 	help := m.statusBarNode(m.statusLine(fmt.Sprintf("Note for: %s%s  —  esc: back   ^s: save", card.Title, m.dirtyMark())), m.helpStyle())
