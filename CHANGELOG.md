@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Bumped `tui` v0.5.1 → v0.5.2, fixing a real terminal-cursor bug:
+  `render.Renderer.placeCursor` only toggles DECTCEM (`\x1b[?25l/h`)
+  per-frame based on the focused widget's own caret, and widgets like
+  the browse/Nav list don't show one. Unlike alt-screen and raw mode,
+  that terminal mode was never restored on exit, so quitting `9ed`
+  while such a widget had focus (e.g. `q` from browse mode) left the
+  real terminal's cursor invisible after exit. `tui` v0.5.2 adds an
+  unconditional cursor-visibility restore to `App.Run()`'s cleanup.
+  Verified live in tmux (`cursor_flag` back to `1` after quitting from
+  browse mode).
+
 ## 0.6.0 - 2026-09-07
 
 - `cmd/9ed`: syntax highlighting now covers all six of `segmenterFor`'s
