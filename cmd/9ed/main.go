@@ -54,6 +54,11 @@ running 9ed can also be jumped to a line from outside via its 9P
 server's writable /goto file, or from another instance via the buffer
 picker's plumb prompt (see below).
 
+Under a 9sh session started with -listen-unix, 9ed opens and saves
+through that session's namespace instead of raw OS calls, honoring
+any rebind the user has set up at /local ($_9SH_UNIX_SOCK; falls back
+to plain file I/O automatically outside 9sh, or if the dial fails).
+
 Nav mode:
   j/k, ↑/↓     move
   gg / G       first / last card
