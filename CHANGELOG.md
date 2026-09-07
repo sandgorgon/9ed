@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-07
+
+- `cmd/9ed`: dropped the box border `tui`'s `List`/`TextArea` drew
+  around every full-screen pane — Nav's card list, Edit/note views,
+  the buffer picker, and directory browse. Each of those is already
+  wrapped in its own `Box.Margin(1)`, so the widget's own border was a
+  redundant second layer of chrome. Filed
+  [`tui#31`](https://github.com/sandgorgon/tui/issues/31) rather than
+  patching `tui`'s checkout directly; landed upstream as a `Frameless`
+  option on `List`/`TextArea` (and, in a follow-up commit, `TextInput`/
+  `Select` too) in `tui` v0.6.0. Bumped `tui` v0.5.2 → v0.6.0 and set
+  `Frameless: true` at all five call sites. Verified live in tmux
+  across Nav, Edit, note, and buffer-picker views.
+- `cmd/9ed`: added a full-screen `?` help screen (`helpView`) listing
+  every mode's keybindings in one place — Global, Nav, Edit, Search,
+  Replace, Note, and Buffer picker/inspect — since each mode's own
+  status line only has room to show its own subset. A `Frameless`,
+  read-only `List` (`helpEvent`) scrolls past its ~50 lines of static
+  content with `j`/`k`, arrows, or PgUp/PgDn; `Esc`, `q`, or `?` again
+  closes it back to Nav, the only mode it's reachable from. Verified
+  live in tmux: opens, scrolls to the last section, and closes cleanly
+  without leaking keys into Nav.
+
 ## 0.6.1 - 2026-09-07
 
 - Bumped `tui` v0.5.1 → v0.5.2, fixing a real terminal-cursor bug:
