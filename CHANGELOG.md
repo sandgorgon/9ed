@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `cmd/9ed`: Nav mode's card list now accepts a mouse click to select
+  and open a card — the mouse equivalent of moving the cursor there
+  with `j`/`k` then pressing `Enter` — and the wheel to scroll one
+  card per tick, same granularity as `j`/`k`. 9ed enables SGR mouse
+  reporting (`\x1b[?1000h\x1b[?1006h`) around `tui.App.Run` for the
+  whole session, mirroring `tui`'s own `examples/gallery` convention,
+  since `tui.App.Run` doesn't turn mouse reporting on by itself.
+  `widget.List` already translated a click's screen row into the
+  clicked item's index and forwarded it (and wheel ticks) to
+  `onEvent` — `listEvent` just needed an `input.MouseEvent` case,
+  previously dropped as an unrecognized event type. Scoped to Nav
+  mode's own card list only; the directory browser and buffer
+  picker's lists stay keyboard-only. Verified live in tmux with raw
+  SGR escape sequences.
+- `cmd/9ed`: documented `nsopen.go`'s `$_9SH_UNIX_SOCK` namespace-aware
+  open/save behavior in `9ed -h`/`--help` text — it was already
+  covered in the package doc comment, README, and CHANGELOG, but never
+  surfaced to someone just running the CLI.
+
 ## 0.4.0 - 2026-09-03
 
 - `cmd/9ed`: gave Nav mode's status bar and Edit mode's line-number

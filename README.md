@@ -29,7 +29,8 @@ picker](#cross-instance-buffer-picker) below), a per-card revert for
 unsaved body edits (`u`, see [Reverting unsaved
 edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers
 in a themed gutter, syntax highlighting for Go/C/C++/Bash (see [Syntax
-highlighting](#syntax-highlighting) below), atomic save, a runtime
+highlighting](#syntax-highlighting) below), mouse click/scroll in Nav
+mode (see [Mouse support](#mouse-support) below), atomic save, a runtime
 light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
 `/goto`, namespace-aware open/save (see
@@ -161,6 +162,17 @@ step back only, no redo, and it resets on Save just like the underlying
 edit itself: it's a session convenience, not version history, which is
 deliberately left to `9vcs` rather than improvised here. Scoped to
 body content only; a note or badge is untouched.
+
+## Mouse support
+
+Nav mode's card list also accepts a left click to select and open a
+card — the mouse equivalent of moving the cursor there with `j`/`k`
+then pressing `Enter` — and the wheel to scroll, one card per tick,
+the same granularity as `j`/`k`. 9ed enables SGR mouse reporting
+around its own `tui.App.Run` for this, since `tui` leaves that off by
+default (not every app wants click-to-focus). Scoped to Nav mode's own
+card list only; the directory browser and buffer picker stay
+keyboard-only for now.
 
 ## Plumbing
 
