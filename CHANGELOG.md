@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `cmd/9ed`: syntax highlighting now covers all six of `segmenterFor`'s
+  target languages, closing the gap the v0.4.0 entry below left open.
+  `kyu` gets its own real-tokenizer highlighter (`kyuHighlights`, via
+  `9sh`'s `kyu/lexer` — the same lexer `KyuSegmenter`'s parser already
+  runs on), the same exact-tokenizer treatment `goHighlights` gives Go;
+  since the lexer discards `#` comments while scanning rather than
+  emitting them as tokens, they're recovered in a second regexp pass
+  over the raw text that excludes any `#` landing inside a STRING
+  token's own span. Haskell reuses the shared C/Bash regex engine and
+  its four semantic roles (keyword/comment/string/number), deliberately
+  not matching `'a'`-style char literals since a trailing `'` is also
+  valid inside a Haskell identifier. Markdown gets its own regex and
+  role set instead — heading/bold/italic/inline+fenced code/link/
+  blockquote — since its inline constructs don't fit the four-role
+  scheme; `regexHighlights` now takes a group-to-style function so both
+  role sets can share the same matching engine.
+
 ## 0.5.0 - 2026-09-07
 
 - `cmd/9ed`: Nav mode's card list now accepts a mouse click to select

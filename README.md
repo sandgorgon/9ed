@@ -28,8 +28,8 @@ browsing](#directory-browsing) below), Acme-style `path:line` plumbing
 picker](#cross-instance-buffer-picker) below), a per-card revert for
 unsaved body edits (`u`, see [Reverting unsaved
 edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers
-in a themed gutter, syntax highlighting for Go/C/C++/Bash (see [Syntax
-highlighting](#syntax-highlighting) below), mouse click/scroll in Nav
+in a themed gutter, syntax highlighting for all six target languages (see
+[Syntax highlighting](#syntax-highlighting) below), mouse click/scroll in Nav
 mode (see [Mouse support](#mouse-support) below), atomic save, a runtime
 light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
@@ -80,14 +80,21 @@ go build -o 9ed ./cmd/9ed
 
 ## Syntax highlighting
 
-Edit mode highlights Go, C/C++, and Bash — keywords, comments, string/
-char literals, and numeric literals, each in a fixed theme color role
-shared across all three languages. Go's highlighter tokenizes with
-`go/scanner` (exact, since Go ships a real one); C/C++ and Bash use a
-combined regexp instead — a "good enough heuristic," not a real
-grammar, the same trade-off `CSegmenter`/`BashSegmenter` already
-accept for structural segmentation. Markdown, Haskell, and `kyu` have
-no highlighter yet.
+Edit mode highlights all six of `segmenterFor`'s target languages. Go and
+`kyu` — the two with their own real tokenizer already available (Go via
+stdlib `go/scanner`, `kyu` via `9sh`'s own `kyu/lexer`) — get exact,
+token-accurate highlighting. C/C++, Bash, Haskell, and Markdown use a
+combined regexp per language instead — a "good enough heuristic," not a
+real grammar, the same trade-off `CSegmenter`/`BashSegmenter`/
+`HaskellSegmenter` already accept for structural segmentation.
+
+Go, C/C++, Bash, and Haskell share four semantic roles — keyword,
+comment, string/char literal, numeric literal — each in a fixed theme
+color. `kyu` uses the same four roles, plus a Path literal styled like a
+string. Markdown's inline constructs don't fit that scheme, so it gets
+its own: heading, bold, italic, inline/fenced code, link, and
+blockquote, each styled distinctly (a link is underlined; bold/italic
+add only an attribute, leaving color alone).
 
 ## Namespace-aware file I/O
 
