@@ -11,10 +11,10 @@ func TestParseFileLine(t *testing.T) {
 	}{
 		{"foo.go:42", "foo.go", 42, true},
 		{"foo.go", "foo.go", 0, false},
-		{"foo.go:", "foo.go:", 0, false},          // trailing colon, nothing after it
-		{"foo.go:abc", "foo.go:abc", 0, false},     // not a number after the colon
-		{"foo.go:0", "foo.go:0", 0, false},         // zero isn't a valid line number
-		{"foo.go:-3", "foo.go:-3", 0, false},       // negative isn't valid either
+		{"foo.go:", "foo.go:", 0, false},       // trailing colon, nothing after it
+		{"foo.go:abc", "foo.go:abc", 0, false}, // not a number after the colon
+		{"foo.go:0", "foo.go:0", 0, false},     // zero isn't a valid line number
+		{"foo.go:-3", "foo.go:-3", 0, false},   // negative isn't valid either
 		{"dir/sub/foo.go:7", "dir/sub/foo.go", 7, true},
 		{"weird:name:9", "weird:name", 9, true}, // splits on the *last* colon
 	}
