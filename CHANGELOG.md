@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-09-09
 
 - `cmd/9ed`: `nsopen.go`'s namespace-aware read/list/save no longer
   consult the OS working directory at all. An absolute argv path is
