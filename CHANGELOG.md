@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `cmd/9ed`: `nsopen.go`'s namespace-aware read/list/save now accept an
+  absolute namespace path directly via `$_9SH_NS_PATH`, checked before
+  the existing cwd-relative-under-`/local` inference (`nsRelPath`). A
+  bind that lives somewhere other than `/local` (`/n/otherhost/foo`,
+  `/env/x`, a custom bind elsewhere) previously fell straight through
+  to the plain-OS fallback even with a live `$_9SH_UNIX_SOCK`
+  connection; it's now walked from the namespace root as given. Lets
+  9sh's native-program dispatch skip the materialize/write-back
+  round-trip it otherwise needs for a namespace-only path. Filed and
+  closed as [`9ed#1`](https://github.com/sandgorgon/9ed/issues/1).
+
 ## 0.7.0 - 2026-09-07
 
 - `cmd/9ed`: dropped the box border `tui`'s `List`/`TextArea` drew

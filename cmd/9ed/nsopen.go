@@ -2,10 +2,14 @@
 // started with `-listen-unix`, 9sh exports the socket path as
 // $_9SH_UNIX_SOCK to every job it spawns (mirrors SSH_AUTH_SOCK's
 // discovery pattern — see 9sh's cmd/9sh/main.go bootstrap and
-// remote.ListenUnix). Dialing it and walking /local/<path-relative-to-cwd>
-// gives 9ed the same view of that file 9sh itself has — honoring any
-// rebind the user has set up at /local — instead of 9ed's own raw OS
-// calls, which would silently bypass it.
+// remote.ListenUnix). Dialing it gives 9ed the same view of a file 9sh
+// itself has, instead of 9ed's own raw OS calls, which would silently
+// bypass any rebind the user has set up. nsElems resolves which path to
+// walk once dialed in: either /local/<path-relative-to-cwd> by default,
+// or, when 9sh's native-program dispatch sets $_9SH_NS_PATH, that
+// absolute namespace path as given — covering a bind that lives
+// somewhere other than /local, which cwd-relativization can't reach at
+// all.
 //
 // 9sh does *not* project its namespace onto the OS filesystem for
 // spawned children (it's a purely in-process 9P construct, package ns),
@@ -34,6 +38,16 @@ import (
 // nsSockEnv names the environment variable 9sh exports when started
 // with -listen-unix. See 9sh's cmd/9sh/main.go bootstrap.
 const nsSockEnv = "_9SH_UNIX_SOCK"
+
+// nsPathEnv names the environment variable 9sh's native-program dispatch
+// sets (mirroring nsSockEnv's own naming/discovery convention) to hand
+// 9ed an absolute namespace path directly — one that isn't reachable by
+// expressing it relative to the OS cwd under /local, e.g. a bind
+// elsewhere like /n/otherhost/foo or /env/x. When set, it's checked
+// before nsRelPath's cwd-relative inference, letting 9sh skip the
+// materialize/write-back round-trip it otherwise needs for a
+// namespace-only path (see 9sh's fullscreen_programs handling).
+const nsPathEnv = "_9SH_NS_PATH"
 
 // readFileNS reads path, preferring 9sh's namespace (see nsReadFile)
 // when one is reachable and falling back to plain os.ReadFile otherwise
@@ -68,6 +82,32 @@ func nsRelPath(path string) (rel string, ok bool) {
 	return filepath.ToSlash(rel), true
 }
 
+// nsElems resolves path to the sequence of names to Walk from the
+// namespace root fid. $_9SH_NS_PATH, when set, wins outright and is
+// walked as given (see nsPathEnv) — path itself is ignored in that case,
+// since the env var already names the one file 9sh dispatched 9ed to
+// open. Otherwise it's /local/<rel> via nsRelPath, same as before
+// $_9SH_NS_PATH existed.
+func nsElems(path string) (elems []string, ok bool) {
+	if v, set := os.LookupEnv(nsPathEnv); set {
+		v = strings.Trim(v, "/")
+		if v == "" {
+			return nil, true // the namespace root itself
+		}
+		return strings.Split(v, "/"), true
+	}
+
+	rel, within := nsRelPath(path)
+	if !within {
+		return nil, false
+	}
+	elems = []string{"local"}
+	if rel != "." {
+		elems = append(elems, strings.Split(rel, "/")...)
+	}
+	return elems, true
+}
+
 // dialNamespace dials 9sh's namespace socket (from $_9SH_UNIX_SOCK) and
 // attaches to it, returning the client and its root Fid. Both nsReadFile
 // and nsSaveFile call this independently and close the client when
@@ -91,12 +131,13 @@ func dialNamespace() (*client.Client, *client.Fid, error) {
 	return c, root, nil
 }
 
-// nsReadFile attempts to read path by walking /local/<rel> in 9sh's
-// namespace. ok is false whenever the namespace path doesn't apply at
+// nsReadFile attempts to read path by walking it in 9sh's namespace —
+// either /local/<rel>, or $_9SH_NS_PATH's absolute path when set (see
+// nsElems). ok is false whenever the namespace path doesn't apply at
 // all (see the package doc comment); the caller must fall back to
 // os.ReadFile in that case.
 func nsReadFile(path string) (data []byte, ok bool) {
-	rel, within := nsRelPath(path)
+	elems, within := nsElems(path)
 	if !within {
 		return nil, false
 	}
@@ -106,7 +147,7 @@ func nsReadFile(path string) (data []byte, ok bool) {
 	}
 	defer c.Close()
 
-	f, err := root.Walk(append([]string{"local"}, strings.Split(rel, "/")...)...)
+	f, err := root.Walk(elems...)
 	if err != nil {
 		return nil, false
 	}
@@ -124,16 +165,15 @@ func nsReadFile(path string) (data []byte, ok bool) {
 	return data, true
 }
 
-// nsListDir attempts to list path's entries by walking /local/<rel> in
-// 9sh's namespace and reading it as a directory (see browse.go's
+// nsListDir attempts to list path's entries by walking it in 9sh's
+// namespace (see nsElems) and reading it as a directory (see browse.go's
 // listDir, which falls back to plain os.ReadDir when ok is false, for
-// the same reasons nsReadFile's is). rel == "." (path is the namespace
-// root itself, i.e. cwd) needs no further Walk elements — Walk with
-// zero names is 9P's own "stay where you are," so appending a literal
-// "." element would ask to walk into a child named ".", which doesn't
-// exist as a real directory entry over 9P.
+// the same reasons nsReadFile's is). An empty elems slice (the
+// namespace root itself, or cwd via /local with nothing further) needs
+// no further Walk elements — Walk with zero names is 9P's own "stay
+// where you are."
 func nsListDir(path string) (entries []p9.Stat, ok bool) {
-	rel, within := nsRelPath(path)
+	elems, within := nsElems(path)
 	if !within {
 		return nil, false
 	}
@@ -143,10 +183,6 @@ func nsListDir(path string) (entries []p9.Stat, ok bool) {
 	}
 	defer c.Close()
 
-	elems := []string{"local"}
-	if rel != "." {
-		elems = append(elems, strings.Split(rel, "/")...)
-	}
 	f, err := root.Walk(elems...)
 	if err != nil {
 		return nil, false
@@ -166,18 +202,19 @@ func nsListDir(path string) (entries []p9.Stat, ok bool) {
 }
 
 // nsSaveFile attempts to atomically write data to path through 9sh's
-// namespace: create a temp file alongside the target under /local, then
-// rename it into place via WStat. dirfs (the usual backing for /local —
-// see 9sh's cmd/9sh/main.go bootstrap) implements a Name-only WStat as
-// a plain os.Rename, which already replaces an existing destination
-// atomically on POSIX — the same guarantee save.go's atomicWrite relies
-// on for the plain-OS path, just carried over 9P instead of a direct
-// syscall. ok is false for the same reasons nsReadFile's is, plus any
-// failure partway through the write/rename; the caller must fall back
-// to atomicWrite in that case.
+// namespace: create a temp file alongside the target (see nsElems for
+// how the target itself is resolved), then rename it into place via
+// WStat. dirfs (the usual backing for /local — see 9sh's cmd/9sh/main.go
+// bootstrap) implements a Name-only WStat as a plain os.Rename, which
+// already replaces an existing destination atomically on POSIX — the
+// same guarantee save.go's atomicWrite relies on for the plain-OS path,
+// just carried over 9P instead of a direct syscall. ok is false for the
+// same reasons nsReadFile's is, plus an empty elems (the namespace root
+// itself isn't a file to overwrite) or any failure partway through the
+// write/rename; the caller must fall back to atomicWrite in that case.
 func nsSaveFile(path string, data []byte) (ok bool) {
-	rel, within := nsRelPath(path)
-	if !within {
+	elems, within := nsElems(path)
+	if !within || len(elems) == 0 {
 		return false
 	}
 	c, root, err := dialNamespace()
@@ -186,7 +223,6 @@ func nsSaveFile(path string, data []byte) (ok bool) {
 	}
 	defer c.Close()
 
-	elems := append([]string{"local"}, strings.Split(rel, "/")...)
 	dirElems, name := elems[:len(elems)-1], elems[len(elems)-1]
 
 	dirFid, err := root.Walk(dirElems...)

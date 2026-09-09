@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -97,6 +98,77 @@ func TestNsReadFile(t *testing.T) {
 			t.Error("got ok=true for a nonexistent file, want false")
 		}
 	})
+}
+
+func TestNsElemsAbsPath(t *testing.T) {
+	// $_9SH_NS_PATH bypasses nsRelPath's cwd-relative inference entirely
+	// — set it to something that isn't reachable under the test's cwd at
+	// all, to prove path (the function argument) is ignored once it's
+	// set. See nsopen.go's nsElems.
+	t.Setenv(nsPathEnv, "/n/otherhost/sub/note.md")
+
+	elems, ok := nsElems("irrelevant.md")
+	if !ok {
+		t.Fatal("got ok=false, want true")
+	}
+	want := []string{"n", "otherhost", "sub", "note.md"}
+	if !reflect.DeepEqual(elems, want) {
+		t.Errorf("got %v, want %v", elems, want)
+	}
+}
+
+func TestNsElemsAbsPathRoot(t *testing.T) {
+	t.Setenv(nsPathEnv, "/")
+
+	elems, ok := nsElems("irrelevant.md")
+	if !ok {
+		t.Fatal("got ok=false, want true")
+	}
+	if len(elems) != 0 {
+		t.Errorf("got %v, want zero-length (namespace root)", elems)
+	}
+}
+
+func TestNsReadFileAbsPath(t *testing.T) {
+	// A bind that lives somewhere other than /local — startTestNamespace
+	// serves parent itself as the namespace root, and $_9SH_NS_PATH
+	// names a file under a sibling of "local" to prove the walk isn't
+	// forced through /local the way the cwd-relative path is.
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(parent, "elsewhere"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "elsewhere", "note.md"), []byte("hello from elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(parent, "local"))
+	startTestNamespace(t, parent)
+	t.Setenv(nsPathEnv, "/elsewhere/note.md")
+
+	data, ok := nsReadFile("note.md") // argument ignored once $_9SH_NS_PATH is set
+	if !ok {
+		t.Fatal("got ok=false, want true")
+	}
+	if string(data) != "hello from elsewhere\n" {
+		t.Errorf("got %q", data)
+	}
+}
+
+func TestNsSaveFileAbsPathRootRejected(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(parent, "local"))
+	startTestNamespace(t, parent)
+	t.Setenv(nsPathEnv, "/")
+
+	if nsSaveFile("irrelevant.md", []byte("x")) {
+		t.Error("got ok=true saving to the namespace root, want false")
+	}
 }
 
 func TestNsSaveFile(t *testing.T) {
