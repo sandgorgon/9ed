@@ -16,7 +16,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -177,10 +179,15 @@ func run() int {
 	// honors any rebind the user has set up at /local, which raw OS
 	// calls would silently bypass. Outside 9sh, or under a 9sh that
 	// wasn't started with -listen-unix, nsReadFile always reports
-	// ok=false and readFileNS falls back to the plain os.ReadFile 9ed
+	// found=false and readFileNS falls back to the plain os.ReadFile 9ed
 	// has always used.
+	//
+	// A path that doesn't exist yet, namespace or OS, isn't an error —
+	// it's a new file: src stays nil (an empty buffer, the same shape an
+	// existing empty file already produces) and Save (atomicWrite)
+	// creates it for real.
 	src, err := readFileNS(path)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintln(os.Stderr, "9ed:", err)
 		return 1
 	}
