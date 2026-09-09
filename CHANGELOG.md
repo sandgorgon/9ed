@@ -2,16 +2,27 @@
 
 ## Unreleased
 
-- `cmd/9ed`: `nsopen.go`'s namespace-aware read/list/save now accept an
-  absolute namespace path directly via `$_9SH_NS_PATH`, checked before
-  the existing cwd-relative-under-`/local` inference (`nsRelPath`). A
-  bind that lives somewhere other than `/local` (`/n/otherhost/foo`,
-  `/env/x`, a custom bind elsewhere) previously fell straight through
-  to the plain-OS fallback even with a live `$_9SH_UNIX_SOCK`
-  connection; it's now walked from the namespace root as given. Lets
-  9sh's native-program dispatch skip the materialize/write-back
-  round-trip it otherwise needs for a namespace-only path. Filed and
-  closed as [`9ed#1`](https://github.com/sandgorgon/9ed/issues/1).
+- `cmd/9ed`: `nsopen.go`'s namespace-aware read/list/save no longer
+  consult the OS working directory at all. An absolute argv path is
+  now tried as a literal namespace path first (falling back to the
+  real filesystem only when the namespace doesn't claim it); a
+  relative path is always rooted at `/local`, 9sh's own bind for the
+  job's working directory, instead of being resolved against the
+  process's actual cwd. A relative path whose parent doesn't resolve
+  in the namespace is a hard failure with no OS fallback, since that
+  fallback would have to go through cwd. This replaces the
+  `$_9SH_NS_PATH` env var added for
+  [`9ed#1`](https://github.com/sandgorgon/9ed/issues/1) — now
+  redundant, since 9sh's native-program dispatch can just pass the
+  namespace path as the argv itself and have it resolve automatically
+  — and closes
+  [`9ed#2`](https://github.com/sandgorgon/9ed/issues/2).
+- `cmd/9ed`: opening a path that doesn't exist yet (namespace or real
+  filesystem) is no longer a fatal error — it starts an empty buffer,
+  the same shape as an existing empty file, and Save creates the file
+  for real. Verified live in tmux: `9ed brand-new.txt` opens a
+  `(0 cards)` buffer, `Ctrl+S` writes a real empty file, reopening it
+  behaves identically to any other existing file.
 
 ## 0.7.0 - 2026-09-07
 
