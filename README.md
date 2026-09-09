@@ -33,7 +33,8 @@ in a themed gutter, syntax highlighting for all six target languages (see
 mode (see [Mouse support](#mouse-support) below), atomic save, a runtime
 light/dark theme toggle (`t`), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
-`/goto`, namespace-aware open/save (see
+`/goto`, namespace-aware open/save with support for opening a
+nonexistent path to create a new file (see
 [Namespace-aware file I/O](#namespace-aware-file-io) below), and card
 annotations — markdown notes plus `todo`/`needs-review` badges (see
 [Card annotations](#card-annotations) below). `9auth` is deliberately
@@ -107,16 +108,30 @@ children (it's a purely in-process 9P construct), so there's no ambient way
 for a child process to see it. The one door in: when `9sh` is started with
 `9sh -listen-unix <path>`, it exports that socket to every job it spawns as
 `$_9SH_UNIX_SOCK` (mirroring `SSH_AUTH_SOCK`'s discovery pattern). 9ed dials
-it, walks `/local/<path-relative-to-cwd>` in `9sh`'s namespace, and uses
-that for both opening the file and every Save — so a bind the user has set
-up at `/local` (redirecting it elsewhere, layering another directory over
-it, ...) applies to whatever file 9ed has open too, not just to `9sh`
-itself. A path outside cwd, or any failure along the way (no socket, dial
-refused, the file isn't reachable there), transparently falls back to the
-plain OS path — this is a best-effort enhancement, never a hard
-requirement. Save reproduces the same crash-safe temp-file-then-rename
-trick the plain OS path uses, just carried over 9P (`cmd/9ed/nsopen.go`)
-instead of a direct syscall.
+it and resolves the argument it was given without ever consulting the OS
+working directory:
+
+- An **absolute** path is tried as a literal path in `9sh`'s namespace
+  first (e.g. `9ed /n/otherhost/foo` walks exactly that). If the namespace
+  doesn't claim it, it's opened as a real absolute path on disk instead.
+- A **relative** path (`9ed foo.go`) is always rooted at `/local`, `9sh`'s
+  own bind for the job's working directory — never the process's actual
+  cwd, so a bind the user has set up at `/local` (redirecting it
+  elsewhere, layering another directory over it, ...) applies to whatever
+  file 9ed has open too, not just to `9sh` itself. If the namespace can't
+  resolve it there, that's a hard failure rather than a silent fallback to
+  the real cwd — a fallback like that would reintroduce exactly the
+  ambient cwd dependency this is meant to avoid.
+
+Outside a reachable namespace (no socket, dial refused), 9ed falls back to
+the plain OS path exactly as if `9sh` weren't involved at all — this is a
+best-effort enhancement, never a hard requirement. Save reproduces the
+same crash-safe temp-file-then-rename trick the plain OS path uses, just
+carried over 9P (`cmd/9ed/nsopen.go`) instead of a direct syscall.
+
+A path that doesn't exist yet — namespace or plain OS — isn't an error:
+`9ed newfile.go` opens an empty buffer, and the first Save creates the
+file for real, the same as any editor's "open to create" behavior.
 
 ## Card annotations
 
