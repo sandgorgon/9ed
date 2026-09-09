@@ -92,13 +92,15 @@ func (m *model) saveCmd() tui.Cmd {
 // nsopen.go's nsSaveFile) when one is reachable — the write-side
 // counterpart to run()'s nsReadFile, so a save honors the same /local
 // rebind the read did instead of quietly falling back to the raw OS
-// path underneath it. nsSaveFile reports ok=false for the same reasons
-// nsReadFile does (no 9sh, path outside cwd, any failure along the
-// way), in which case this falls through to atomicWriteOS exactly as
-// before.
+// path underneath it. nsSaveFile reports found=false for the same
+// reasons nsReadFile does (no 9sh, or an absolute path the namespace
+// doesn't claim), in which case this falls through to atomicWriteOS
+// exactly as before; found=true commits to whatever err it returns,
+// nil or not, since falling back further would mean silently retrying
+// through cwd (see nsopen.go's package doc comment).
 func atomicWrite(path string, data []byte) error {
-	if nsSaveFile(path, data) {
-		return nil
+	if found, err := nsSaveFile(path, data); found {
+		return err
 	}
 	return atomicWriteOS(path, data)
 }

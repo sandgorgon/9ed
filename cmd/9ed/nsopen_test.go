@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,21 +38,23 @@ func startTestNamespace(t *testing.T, parent string) {
 	t.Setenv(nsSockEnv, sock)
 }
 
-func TestNsRelPath(t *testing.T) {
-	cwd := t.TempDir()
-	t.Chdir(cwd)
-
-	if rel, ok := nsRelPath("note.md"); !ok || rel != "note.md" {
-		t.Errorf("note.md: got (%q, %v), want (\"note.md\", true)", rel, ok)
+func TestNsPathElems(t *testing.T) {
+	cases := []struct {
+		path string
+		want []string
+	}{
+		{"note.md", []string{"local", "note.md"}},
+		{"./note.md", []string{"local", "note.md"}},
+		{"sub/note.md", []string{"local", "sub", "note.md"}},
+		{".", []string{"local"}},
+		{"/config/config.ky", []string{"config", "config.ky"}},
+		{"/", nil},
 	}
-	if rel, ok := nsRelPath(filepath.Join(cwd, "sub", "note.md")); !ok || rel != "sub/note.md" {
-		t.Errorf("sub/note.md: got (%q, %v), want (\"sub/note.md\", true)", rel, ok)
-	}
-	if _, ok := nsRelPath(filepath.Join(t.TempDir(), "elsewhere.md")); ok {
-		t.Error("path outside cwd: got ok=true, want false")
-	}
-	if _, ok := nsRelPath(".."); ok {
-		t.Error("'..' escaping cwd: got ok=true, want false")
+	for _, c := range cases {
+		got := nsPathElems(c.path)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("nsPathElems(%q) = %v, want %v", c.path, got, c.want)
+		}
 	}
 }
 
@@ -66,74 +70,64 @@ func TestNsReadFile(t *testing.T) {
 	t.Chdir(cwd)
 
 	t.Run("no socket set", func(t *testing.T) {
-		if _, ok := nsReadFile("note.md"); ok {
-			t.Error("got ok=true with no $_9SH_UNIX_SOCK set, want false")
+		if _, found, _ := nsReadFile("note.md"); found {
+			t.Error("got found=true with no $_9SH_UNIX_SOCK set, want false")
 		}
 	})
 
 	startTestNamespace(t, parent)
 
 	t.Run("reads through the namespace", func(t *testing.T) {
-		data, ok := nsReadFile("note.md")
-		if !ok {
-			t.Fatal("got ok=false, want true")
+		data, found, err := nsReadFile("note.md")
+		if !found || err != nil {
+			t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
 		}
 		if string(data) != "hello from namespace\n" {
 			t.Errorf("got %q", data)
 		}
 	})
 
-	t.Run("path outside cwd falls back", func(t *testing.T) {
+	t.Run("relative path whose parent doesn't resolve hard-fails, no cwd fallback", func(t *testing.T) {
+		// "nosuchdir" has no entry under /local at all, so the parent
+		// Walk itself fails — proving there's no fallback to a real
+		// cwd-relative read for a relative path (see the package doc
+		// comment: a 9sh native program never leans on cwd). Note this
+		// is different from a relative path using ".." to walk to a real
+		// sibling of /local within the namespace itself (dirfs backs
+		// /local with an actual directory tree, so that "escape" stays
+		// entirely inside the namespace) — only a parent that doesn't
+		// exist anywhere the namespace can reach is the hard-fail case.
+		if _, found, err := nsReadFile("nosuchdir/elsewhere.md"); !found || err == nil {
+			t.Errorf("got (found=%v, err=%v), want (true, non-nil)", found, err)
+		}
+	})
+
+	t.Run("absolute path outside the namespace falls back", func(t *testing.T) {
 		outside := filepath.Join(t.TempDir(), "elsewhere.md")
 		if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := nsReadFile(outside); ok {
-			t.Error("got ok=true for a path outside cwd, want false")
+		if _, found, _ := nsReadFile(outside); found {
+			t.Error("got found=true for an absolute path the namespace doesn't claim, want false")
 		}
 	})
 
-	t.Run("nonexistent file falls back", func(t *testing.T) {
-		if _, ok := nsReadFile("missing.md"); ok {
-			t.Error("got ok=true for a nonexistent file, want false")
+	t.Run("nonexistent relative file reports ErrNotExist, not a fallback", func(t *testing.T) {
+		_, found, err := nsReadFile("missing.md")
+		if !found {
+			t.Fatal("got found=false for a location the namespace does claim (/local), want true")
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("got err=%v, want fs.ErrNotExist", err)
 		}
 	})
-}
-
-func TestNsElemsAbsPath(t *testing.T) {
-	// $_9SH_NS_PATH bypasses nsRelPath's cwd-relative inference entirely
-	// — set it to something that isn't reachable under the test's cwd at
-	// all, to prove path (the function argument) is ignored once it's
-	// set. See nsopen.go's nsElems.
-	t.Setenv(nsPathEnv, "/n/otherhost/sub/note.md")
-
-	elems, ok := nsElems("irrelevant.md")
-	if !ok {
-		t.Fatal("got ok=false, want true")
-	}
-	want := []string{"n", "otherhost", "sub", "note.md"}
-	if !reflect.DeepEqual(elems, want) {
-		t.Errorf("got %v, want %v", elems, want)
-	}
-}
-
-func TestNsElemsAbsPathRoot(t *testing.T) {
-	t.Setenv(nsPathEnv, "/")
-
-	elems, ok := nsElems("irrelevant.md")
-	if !ok {
-		t.Fatal("got ok=false, want true")
-	}
-	if len(elems) != 0 {
-		t.Errorf("got %v, want zero-length (namespace root)", elems)
-	}
 }
 
 func TestNsReadFileAbsPath(t *testing.T) {
 	// A bind that lives somewhere other than /local — startTestNamespace
-	// serves parent itself as the namespace root, and $_9SH_NS_PATH
-	// names a file under a sibling of "local" to prove the walk isn't
-	// forced through /local the way the cwd-relative path is.
+	// serves parent itself as the namespace root, so an absolute path
+	// naming a sibling of "local" proves the walk isn't forced through
+	// /local the way a relative path is.
 	parent := t.TempDir()
 	if err := os.Mkdir(filepath.Join(parent, "local"), 0o755); err != nil {
 		t.Fatal(err)
@@ -146,28 +140,26 @@ func TestNsReadFileAbsPath(t *testing.T) {
 	}
 	t.Chdir(filepath.Join(parent, "local"))
 	startTestNamespace(t, parent)
-	t.Setenv(nsPathEnv, "/elsewhere/note.md")
 
-	data, ok := nsReadFile("note.md") // argument ignored once $_9SH_NS_PATH is set
-	if !ok {
-		t.Fatal("got ok=false, want true")
+	data, found, err := nsReadFile("/elsewhere/note.md")
+	if !found || err != nil {
+		t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
 	}
 	if string(data) != "hello from elsewhere\n" {
 		t.Errorf("got %q", data)
 	}
 }
 
-func TestNsSaveFileAbsPathRootRejected(t *testing.T) {
+func TestNsSaveFileRootRejected(t *testing.T) {
 	parent := t.TempDir()
 	if err := os.Mkdir(filepath.Join(parent, "local"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(filepath.Join(parent, "local"))
 	startTestNamespace(t, parent)
-	t.Setenv(nsPathEnv, "/")
 
-	if nsSaveFile("irrelevant.md", []byte("x")) {
-		t.Error("got ok=true saving to the namespace root, want false")
+	if found, _ := nsSaveFile("/", []byte("x")); found {
+		t.Error("got found=true saving to the namespace root, want false")
 	}
 }
 
@@ -181,8 +173,8 @@ func TestNsSaveFile(t *testing.T) {
 	startTestNamespace(t, parent)
 
 	t.Run("writes a new file", func(t *testing.T) {
-		if !nsSaveFile("new.md", []byte("saved via namespace\n")) {
-			t.Fatal("nsSaveFile: got ok=false, want true")
+		if found, err := nsSaveFile("new.md", []byte("saved via namespace\n")); !found || err != nil {
+			t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
 		}
 		got, err := os.ReadFile(filepath.Join(cwd, "new.md"))
 		if err != nil {
@@ -198,8 +190,8 @@ func TestNsSaveFile(t *testing.T) {
 		if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if !nsSaveFile("existing.md", []byte("new content\n")) {
-			t.Fatal("nsSaveFile: got ok=false, want true")
+		if found, err := nsSaveFile("existing.md", []byte("new content\n")); !found || err != nil {
+			t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
 		}
 		got, err := os.ReadFile(target)
 		if err != nil {
@@ -218,8 +210,8 @@ func TestNsSaveFile(t *testing.T) {
 	})
 
 	t.Run("no stray temp file left behind", func(t *testing.T) {
-		if !nsSaveFile("clean.md", []byte("x")) {
-			t.Fatal("nsSaveFile: got ok=false, want true")
+		if found, err := nsSaveFile("clean.md", []byte("x")); !found || err != nil {
+			t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
 		}
 		entries, err := os.ReadDir(cwd)
 		if err != nil {
@@ -232,10 +224,16 @@ func TestNsSaveFile(t *testing.T) {
 		}
 	})
 
-	t.Run("path outside cwd falls back", func(t *testing.T) {
+	t.Run("absolute path outside the namespace falls back", func(t *testing.T) {
 		outside := filepath.Join(t.TempDir(), "elsewhere.md")
-		if nsSaveFile(outside, []byte("x")) {
-			t.Error("got ok=true for a path outside cwd, want false")
+		if found, _ := nsSaveFile(outside, []byte("x")); found {
+			t.Error("got found=true for an absolute path the namespace doesn't claim, want false")
+		}
+	})
+
+	t.Run("relative path whose parent doesn't resolve hard-fails, no cwd fallback", func(t *testing.T) {
+		if found, err := nsSaveFile("nosuchdir/elsewhere.md", []byte("x")); !found || err == nil {
+			t.Errorf("got (found=%v, err=%v), want (true, non-nil)", found, err)
 		}
 	})
 }
