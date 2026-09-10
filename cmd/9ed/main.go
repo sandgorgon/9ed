@@ -549,12 +549,14 @@ func (m *model) finalizeNoteEdit() {
 }
 
 // helpStyle renders the status line in the theme's Error color after a
-// failed save, Muted otherwise.
+// failed save, ChromeText otherwise — every caller wraps this in
+// statusBarNode, whose StatusBar always overrides Bg with chromeBg
+// (theme.Border) regardless of what's set here, so only Fg matters.
 func (m *model) helpStyle() cell.Style {
 	if m.saveErr != "" {
 		return cell.Style{Fg: m.theme.Error}
 	}
-	return cell.Style{Fg: cell.ANSIColor(8)}
+	return m.theme.ChromeText()
 }
 
 // statusLine appends the last save error (if any) to rest, so a failed
@@ -1375,7 +1377,7 @@ func (m *model) editView() tui.Node {
 	// paintGutterRow), so it's offset by the card's own starting line,
 	// computed once here rather than per visible row.
 	firstLine := cardFirstLine(m.src, card.Span[0])
-	gutterStyle := cell.Style{Fg: theme.Muted, Bg: theme.Border}
+	gutterStyle := theme.ChromeText()
 	gutter := func(lineIdx int) (string, cell.Style) {
 		return strconv.Itoa(firstLine + lineIdx), gutterStyle
 	}
