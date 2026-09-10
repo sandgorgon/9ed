@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.1 - 2026-09-10
 
 - Bumped `tui` v0.6.0 -> v0.6.2: retunes `DefaultDark`/`DefaultLight`'s
   `Border`/`Muted` contrast and `Success`/`Warning`/`Error` colorblind-
