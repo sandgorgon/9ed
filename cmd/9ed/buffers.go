@@ -284,7 +284,7 @@ func (m *model) pickerView() tui.Node {
 	if m.bufferLoading {
 		status += "   connecting..."
 	}
-	help := m.statusBarNode(status+"  —  j/k: move   enter: inspect   q: back", theme.MutedText())
+	help := m.statusBarNode(status+"  —  j/k: move   enter: inspect   q: back", theme.ChromeText())
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),
