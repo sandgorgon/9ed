@@ -159,7 +159,7 @@ func (m *model) replaceView() tui.Node {
 			m.replaceCount, m.replaceSkipped)
 		return tui.Box(layout.Vertical,
 			tui.Child(layout.Fill(1), tui.Box(layout.Vertical)),
-			tui.Child(layout.Length(1), m.statusBarNode(summary, theme.MutedText())),
+			tui.Child(layout.Length(1), m.statusBarNode(summary, theme.ChromeText())),
 		).Margin(1)
 	}
 
