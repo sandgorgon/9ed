@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.2 - 2026-09-10
+
+- Bumped `tui` v0.6.2 -> v0.7.0: adds `Theme.Chrome`/`ChromeText()`, a
+  role contrast-tested (>=4.5:1) against `Border` itself rather than
+  the terminal background, and backs `Border` off its v0.6.2
+  overcorrected brightness to leave room for it. `Muted`-on-`Border` —
+  the pairing 9ed's gutter and status/help bars used — measured as low
+  as ~1.2:1, unreadable in a real terminal.
+- `cmd/9ed`: rewired every site that paints text on a `Border`-tinted
+  chrome panel (the edit-mode gutter, all status/help bars via
+  `helpStyle`/`statusBarNode`, and `browse.go`'s standalone
+  `StatusBar`) to `ChromeText()` instead of `Muted`/`MutedText()`/a
+  hardcoded `cell.ANSIColor(8)`. Verified live in tmux: gutter numbers
+  and status-bar text now render clearly instead of nearly blending
+  into the panel background.
+
 ## 0.8.1 - 2026-09-10
 
 - Bumped `tui` v0.6.0 -> v0.6.2: retunes `DefaultDark`/`DefaultLight`'s
