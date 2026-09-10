@@ -10,8 +10,8 @@ import (
 
 // KyuSegmenter segments kyu source into one card per top-level statement
 // (a `name := expr` define, a `target = expr` assign, a `bind`/`unbind`
-// namespace verb, a `$cmd` passthrough, or a bare expression statement —
-// which itself may be a `while`/`break`/`continue`), plus a leading
+// namespace verb, or a bare expression statement — which itself may be a
+// `while`/`break`/`continue`), plus a leading
 // "preamble" card for any content before the first statement — or, if the
 // source fails to parse or has no top-level statements at all, one
 // "preamble" card covering the whole file. Uses 9sh's kyu/parser (a real
@@ -55,8 +55,8 @@ func (KyuSegmenter) Segment(src []byte) []Card {
 		// Only "define" gets a Name: it's the one statement kind that
 		// actually introduces a new identifier. "assign" mutates an
 		// existing one (and its Target can be an arbitrary FieldAccess
-		// chain, not a single name); "bind"/"unbind"/"passthrough"/
-		// "expr" don't define anything at all — see Card.Name.
+		// chain, not a single name); "bind"/"unbind"/"expr" don't define
+		// anything at all — see Card.Name.
 		name := ""
 		if d, ok := s.(*kast.DefineStmt); ok {
 			name = d.Name
@@ -95,8 +95,6 @@ func kyuStmtTok(s kast.Stmt) (ktoken.Token, string) {
 		return n.Tok, "bind"
 	case *kast.UnbindStmt:
 		return n.Tok, "unbind"
-	case *kast.PassthroughStmt:
-		return n.Tok, "passthrough"
 	case *kast.ExprStmt:
 		return kyuExprTok(n.X), "expr"
 	default:

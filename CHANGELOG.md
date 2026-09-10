@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Bumped `tui` v0.6.0 -> v0.6.2: retunes `DefaultDark`/`DefaultLight`'s
+  `Border`/`Muted` contrast and `Success`/`Warning`/`Error` colorblind-
+  safety/ANSI-16 fallback — 9ed uses these themes directly, so Nav/Edit,
+  the help screen, and the buffer/search pickers all render with the
+  updated palette. Verified live in tmux.
+- Bumped `9sh` v0.4.20 -> v0.4.24. `kyu`'s `$cmd` passthrough syntax was
+  removed upstream (`ast.PassthroughStmt`/`token.DOLLAR` gone, replaced
+  by config-driven fullscreen-program detection on the shell side) —
+  `deck/kyu.go`'s `KyuSegmenter` no longer has a `"passthrough"` card
+  kind, since the syntax it recognized no longer parses at all. Verified
+  live in tmux that `bind`/`define`/external-call (`%cmd`) cards still
+  segment correctly.
+
 ## 0.8.0 - 2026-09-09
 
 - `cmd/9ed`: `nsopen.go`'s namespace-aware read/list/save no longer
