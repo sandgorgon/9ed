@@ -208,17 +208,15 @@ func regexHighlights(body string, theme style.Theme, spec *regexp.Regexp, styleF
 // roles styleFor uses for Go tokens, extended with the type/constant/
 // builtin/variable roles styleFor's predeclared-identifier lookups add
 // for Go — "preprocessor" (C), "builtin" (Bash), and "pragma" (Haskell)
-// all share the Error role since each flags a "special, not user code"
-// construct; "variable" (Bash) reuses the Primary role "type" uses in
+// all share the Info role since each flags a "special, not user code"
+// construct, the same way Markdown's own mdGroupStyle already uses Info
+// for a link; "variable" (Bash) reuses the Primary role "type" uses in
 // C/Haskell, since no single regex-language spec here emits both groups,
-// so there's no collision. Error, not Info, deliberately: style.Theme's
-// DefaultDark/DefaultLight define Accent and Info as the exact same RGB
-// value (see upstream-specs/tui-accent-info-color-collision.md), so a
-// constant (Accent) and a builtin/preprocessor/pragma (would-be Info)
-// would render identically — Error is the nearest other role this
-// package doesn't already use for a code-language role, and (per
-// DefaultDark's own doc comment) is contrast-checked and
-// colorblind-separated the same as Success/Warning.
+// so there's no collision. (Info, not Error: an earlier version of this
+// function used Error instead, since tui < v0.8.1 gave Accent and Info
+// the exact same RGB value in both default themes — see
+// upstream-specs/tui-accent-info-color-collision.md and
+// github.com/sandgorgon/tui/issues/40, fixed upstream in v0.8.1.)
 func regexGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 	switch name {
 	case "comment":
@@ -234,7 +232,7 @@ func regexGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 	case "constant":
 		return cell.Style{Fg: theme.Accent}, true
 	case "preprocessor", "builtin", "pragma":
-		return cell.Style{Fg: theme.Error}, true
+		return cell.Style{Fg: theme.Info}, true
 	default:
 		return cell.Style{}, false
 	}
@@ -355,13 +353,11 @@ var (
 // theme color, reusing the theme's semantic roles rather than hardcoding
 // colors — keywords get the theme's Secondary accent, comments Muted,
 // string/char literals Success, numeric literals Warning, predeclared
-// types Primary, predeclared constants Accent, builtin functions Error
-// (not Info — see regexGroupStyle's own doc comment on why: Accent and
-// Info are the same RGB value in both of style.Theme's default themes,
-// so a builtin function would render identically to a constant if it
-// used Info instead). Punctuation, ordinary identifiers, and
-// (deliberately) SEMICOLON — whose literal can be an auto-inserted "\n"
-// rather than real source text — get no override.
+// types Primary, predeclared constants Accent, builtin functions Info
+// (see regexGroupStyle's own doc comment on why Info, not Error, is
+// safe to use here as of tui v0.8.1). Punctuation, ordinary
+// identifiers, and (deliberately) SEMICOLON — whose literal can be an
+// auto-inserted "\n" rather than real source text — get no override.
 func styleFor(tok token.Token, lit string, theme style.Theme) (cell.Style, bool) {
 	switch {
 	case tok.IsKeyword():
@@ -377,7 +373,7 @@ func styleFor(tok token.Token, lit string, theme style.Theme) (cell.Style, bool)
 	case tok == token.IDENT && goPredeclaredConstants[lit]:
 		return cell.Style{Fg: theme.Accent}, true
 	case tok == token.IDENT && goBuiltinFuncs[lit]:
-		return cell.Style{Fg: theme.Error}, true
+		return cell.Style{Fg: theme.Info}, true
 	default:
 		return cell.Style{}, false
 	}

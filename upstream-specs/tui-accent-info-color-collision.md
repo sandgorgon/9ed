@@ -1,8 +1,12 @@
 # tui: `Theme.Accent` and `Theme.Info` are the same color in both default themes
 
-**Status:** Filed.
+**Status:** Resolved in `tui` v0.8.1 — `Info` now gets its own distinct
+indigo/blue-violet in both `DefaultDark`/`DefaultLight`, with a
+`TestAccentAndInfoAreDistinct` regression test. 9ed bumped to v0.8.1 and
+reverted the `Error` workaround described below back to `Info` in
+`cmd/9ed/highlight.go`.
 
-**Issue:** https://github.com/sandgorgon/tui/issues/40
+**Issue:** https://github.com/sandgorgon/tui/issues/40 (closed)
 
 **Repo:** github.com/sandgorgon/tui
 **Origin:** surfaced while expanding 9ed's syntax highlighting

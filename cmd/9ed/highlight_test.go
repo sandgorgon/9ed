@@ -190,7 +190,7 @@ func TestGoHighlights(t *testing.T) {
 				sawType = true
 			case theme.Accent:
 				sawConstant = true
-			case theme.Error:
+			case theme.Info:
 				sawBuiltin = true
 			}
 		}
@@ -212,7 +212,7 @@ func TestGoHighlights(t *testing.T) {
 		got := goHighlights(`len := 3`, theme)
 		var found bool
 		for _, sp := range got {
-			if sp.Style.Fg == theme.Error {
+			if sp.Style.Fg == theme.Info {
 				found = true
 			}
 		}
@@ -230,7 +230,7 @@ func TestRegexHighlightsCSpec(t *testing.T) {
 		var sawPreprocessor, sawType, sawConstant bool
 		for _, sp := range got {
 			switch sp.Style.Fg {
-			case theme.Error:
+			case theme.Info:
 				sawPreprocessor = true
 			case theme.Primary:
 				sawType = true
@@ -307,7 +307,7 @@ func TestRegexHighlightsBashSpec(t *testing.T) {
 			switch sp.Style.Fg {
 			case theme.Primary:
 				sawVariable = true
-			case theme.Error:
+			case theme.Info:
 				sawBuiltin = true
 			}
 		}
@@ -363,7 +363,7 @@ func TestRegexHighlightsHaskellSpec(t *testing.T) {
 		var sawPragma, sawType bool
 		for _, sp := range got {
 			switch sp.Style.Fg {
-			case theme.Error:
+			case theme.Info:
 				sawPragma = true
 			case theme.Primary:
 				sawType = true
@@ -379,8 +379,8 @@ func TestRegexHighlightsHaskellSpec(t *testing.T) {
 
 	t.Run("a pragma is not swallowed by the wider block-comment alternative", func(t *testing.T) {
 		got := regexHighlights("{-# INLINE f #-}", theme, haskellLangRe, regexGroupStyle)
-		if len(got) != 1 || got[0].Style.Fg != theme.Error {
-			t.Errorf("regexHighlights(pragma) = %v, want one Error-styled span covering the whole pragma", got)
+		if len(got) != 1 || got[0].Style.Fg != theme.Info {
+			t.Errorf("regexHighlights(pragma) = %v, want one Info-styled span covering the whole pragma", got)
 		}
 	})
 }
