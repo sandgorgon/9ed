@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.3 - 2026-09-11
+
+- `cmd/9ed`: syntax highlighting now colors up to eight semantic roles
+  per code language instead of four. Go/kyu/C/C++/Bash/Haskell add type
+  names, constants (`true`/`false`/`nil`/`iota`/`NULL`), and — where the
+  language has one — builtin functions/commands, preprocessor
+  directives, pragmas, or shell variables. Markdown grows from six to
+  ten categories: image, strikethrough, list marker, and horizontal
+  rule join the existing heading/bold/italic/code/link/blockquote. All
+  new roles reuse `style.Theme` fields (`Primary`/`Accent`/`Info`) that
+  were already defined but unused by highlighting — no `tui` API
+  changes needed. Verified live in tmux across Go and Markdown samples.
+- Bumped `tui` v0.7.0 -> v0.8.1. v0.8.1 fixes
+  [sandgorgon/tui#40](https://github.com/sandgorgon/tui/issues/40):
+  `Theme.Accent` and `Theme.Info` shared the identical RGB value in
+  both default themes, found while adding the roles above — 9ed had
+  briefly worked around it with `Error` before the upstream fix landed,
+  then switched back to the semantically-correct `Info` once it did.
+  v0.8.0's `widget.Terminal` scrollback support comes along with the
+  bump but isn't used anywhere in 9ed.
+
 ## 0.8.2 - 2026-09-10
 
 - Bumped `tui` v0.6.2 -> v0.7.0: adds `Theme.Chrome`/`ChromeText()`, a

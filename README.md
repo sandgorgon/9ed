@@ -13,7 +13,7 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.8.2`): M0–M12 implemented —
+Status (`v0.8.3`): M0–M12 implemented —
 deck segmentation for all six target languages (Markdown, Go, Bash,
 C/C++, Haskell, `kyu`, plus a plain-text fallback for anything else),
 Nav/Edit mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/
@@ -89,13 +89,19 @@ combined regexp per language instead — a "good enough heuristic," not a
 real grammar, the same trade-off `CSegmenter`/`BashSegmenter`/
 `HaskellSegmenter` already accept for structural segmentation.
 
-Go, C/C++, Bash, and Haskell share four semantic roles — keyword,
-comment, string/char literal, numeric literal — each in a fixed theme
-color. `kyu` uses the same four roles, plus a Path literal styled like a
-string. Markdown's inline constructs don't fit that scheme, so it gets
-its own: heading, bold, italic, inline/fenced code, link, and
-blockquote, each styled distinctly (a link is underlined; bold/italic
-add only an attribute, leaving color alone).
+Go, C/C++, Bash, and Haskell share up to eight semantic roles, each in a
+fixed theme color: keyword, comment, string/char literal, numeric
+literal, type name, constant, and — where the language has one —
+builtin function/command, preprocessor directive, pragma, or shell
+variable. `kyu` uses keyword/comment/string/number/constant (its
+`true`/`false`/`null` are colored as constants, not keywords), plus a
+Path literal styled like a string; its lexer has no separate
+builtin-function token kind, so that role doesn't apply. Markdown's
+inline constructs don't fit that scheme, so it gets its own ten
+categories: heading, bold, italic, strikethrough, inline/fenced code,
+link, image, blockquote, list marker, and horizontal rule — each styled
+distinctly (a link/image is underlined; bold/italic/strikethrough add
+only an attribute, leaving color alone).
 
 ## Namespace-aware file I/O
 
