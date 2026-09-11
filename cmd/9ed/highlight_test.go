@@ -178,8 +178,76 @@ func TestHighlightsFor(t *testing.T) {
 	})
 }
 
+func TestGoHighlights(t *testing.T) {
+	theme := style.DefaultDark()
+
+	t.Run("a predeclared type, constant, and builtin each get their own role", func(t *testing.T) {
+		got := goHighlights(`var x int = len(s); var ok bool = true`, theme)
+		var sawType, sawConstant, sawBuiltin bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Primary:
+				sawType = true
+			case theme.Accent:
+				sawConstant = true
+			case theme.Error:
+				sawBuiltin = true
+			}
+		}
+		if !sawType {
+			t.Error("no type-styled span found for \"int\"/\"bool\"")
+		}
+		if !sawConstant {
+			t.Error("no constant-styled span found for \"true\"")
+		}
+		if !sawBuiltin {
+			t.Error("no builtin-styled span found for \"len\"")
+		}
+	})
+
+	t.Run("a shadowed builtin is still colored as the builtin", func(t *testing.T) {
+		// go/scanner alone can't tell a shadowing local from the real
+		// predeclared identifier — see styleFor's own doc comment on this
+		// accepted trade-off.
+		got := goHighlights(`len := 3`, theme)
+		var found bool
+		for _, sp := range got {
+			if sp.Style.Fg == theme.Error {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("no builtin-styled span found for shadowed \"len\"")
+		}
+	})
+}
+
 func TestRegexHighlightsCSpec(t *testing.T) {
 	theme := style.DefaultDark()
+
+	t.Run("a preprocessor directive, a stdlib type, and a constant each get their own role", func(t *testing.T) {
+		got := regexHighlights("#include <stdio.h>\nsize_t n = 0;\nbool b = true;", theme, cLangRe, regexGroupStyle)
+		var sawPreprocessor, sawType, sawConstant bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Error:
+				sawPreprocessor = true
+			case theme.Primary:
+				sawType = true
+			case theme.Accent:
+				sawConstant = true
+			}
+		}
+		if !sawPreprocessor {
+			t.Error("no preprocessor-styled span found for \"#include <stdio.h>\"")
+		}
+		if !sawType {
+			t.Error("no type-styled span found for \"size_t\"/\"bool\"")
+		}
+		if !sawConstant {
+			t.Error("no constant-styled span found for \"true\"")
+		}
+	})
 
 	t.Run("comments and strings win over a keyword-looking substring inside them", func(t *testing.T) {
 		// Every keyword-looking word here ("if", "return", "for") only
@@ -231,6 +299,34 @@ func TestRegexHighlightsBashSpec(t *testing.T) {
 	if !sawComment {
 		t.Error("no comment-styled span found for \"# comment\"")
 	}
+
+	t.Run("a bare variable and a builtin command each get their own role", func(t *testing.T) {
+		got := regexHighlights(`echo "$HOME"; y=$x`, theme, bashLangRe, regexGroupStyle)
+		var sawVariable, sawBuiltin bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Primary:
+				sawVariable = true
+			case theme.Error:
+				sawBuiltin = true
+			}
+		}
+		if !sawVariable {
+			t.Error("no variable-styled span found for \"$x\"")
+		}
+		if !sawBuiltin {
+			t.Error("no builtin-styled span found for \"echo\"")
+		}
+	})
+
+	t.Run("a variable inside a double-quoted string is left as part of the string span", func(t *testing.T) {
+		got := regexHighlights(`echo "$HOME"`, theme, bashLangRe, regexGroupStyle)
+		for _, sp := range got {
+			if sp.Style.Fg == theme.Primary {
+				t.Errorf("unexpected variable-styled span %v: \"$HOME\" here is inside a string", sp)
+			}
+		}
+	})
 }
 
 func TestRegexHighlightsHaskellSpec(t *testing.T) {
@@ -259,6 +355,32 @@ func TestRegexHighlightsHaskellSpec(t *testing.T) {
 			if sp.Style.Fg == theme.Success {
 				t.Errorf("unexpected string-styled span %v: fact' has no char/string literal", sp)
 			}
+		}
+	})
+
+	t.Run("a pragma and a capitalized type/constructor name each get their own role", func(t *testing.T) {
+		got := regexHighlights("{-# LANGUAGE OverloadedStrings #-}\ndata Maybe a = Nothing | Just a", theme, haskellLangRe, regexGroupStyle)
+		var sawPragma, sawType bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Error:
+				sawPragma = true
+			case theme.Primary:
+				sawType = true
+			}
+		}
+		if !sawPragma {
+			t.Error("no pragma-styled span found for \"{-# LANGUAGE ... #-}\"")
+		}
+		if !sawType {
+			t.Error("no type-styled span found for \"Maybe\"/\"Nothing\"/\"Just\"")
+		}
+	})
+
+	t.Run("a pragma is not swallowed by the wider block-comment alternative", func(t *testing.T) {
+		got := regexHighlights("{-# INLINE f #-}", theme, haskellLangRe, regexGroupStyle)
+		if len(got) != 1 || got[0].Style.Fg != theme.Error {
+			t.Errorf("regexHighlights(pragma) = %v, want one Error-styled span covering the whole pragma", got)
 		}
 	})
 }
@@ -312,6 +434,40 @@ func TestMdGroupStyle(t *testing.T) {
 		got := regexHighlights("see [docs](https://example.com) for more", theme, mdLangRe, mdGroupStyle)
 		if len(got) != 1 || got[0].Style.Fg != theme.Info || got[0].Style.Underline != cell.UnderlineSingle {
 			t.Errorf("regexHighlights(link) = %v, want one underlined Info-styled span", got)
+		}
+	})
+
+	t.Run("an image is styled distinctly from a plain link", func(t *testing.T) {
+		got := regexHighlights("![alt](img.png)", theme, mdLangRe, mdGroupStyle)
+		if len(got) != 1 || got[0].Style.Fg != theme.Success || got[0].Style.Underline != cell.UnderlineSingle {
+			t.Errorf("regexHighlights(image) = %v, want one underlined Success-styled span", got)
+		}
+	})
+
+	t.Run("strikethrough only adds an attribute, never a color", func(t *testing.T) {
+		got := regexHighlights("plain ~~gone~~ text", theme, mdLangRe, mdGroupStyle)
+		if len(got) != 1 || got[0].Style.Fg != cell.DefaultColor() || got[0].Style.Attr != cell.AttrStrikethrough {
+			t.Errorf("regexHighlights(strike) = %v, want one strikethrough-attributed span with no color", got)
+		}
+	})
+
+	t.Run("a list marker and a horizontal rule each get their own role", func(t *testing.T) {
+		body := "- first\n1. second\n\n---\n"
+		got := regexHighlights(body, theme, mdLangRe, mdGroupStyle)
+		var sawListmarker, sawHR bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Warning:
+				sawListmarker = true
+			case theme.Secondary:
+				sawHR = true
+			}
+		}
+		if !sawListmarker {
+			t.Error("no listmarker-styled span found for \"- \"/\"1. \"")
+		}
+		if !sawHR {
+			t.Error("no hr-styled span found for \"---\"")
 		}
 	})
 }
@@ -378,6 +534,25 @@ func TestKyuHighlights(t *testing.T) {
 	t.Run("empty body returns nil", func(t *testing.T) {
 		if got := kyuHighlights("", theme); got != nil {
 			t.Errorf("kyuHighlights(\"\") = %v, want nil", got)
+		}
+	})
+
+	t.Run("true/false/null are constant-styled, distinct from a real control-flow keyword", func(t *testing.T) {
+		got := kyuHighlights(`if true { x := false } y := null`, theme)
+		var sawKeyword, sawConstant bool
+		for _, sp := range got {
+			switch sp.Style.Fg {
+			case theme.Secondary:
+				sawKeyword = true
+			case theme.Accent:
+				sawConstant = true
+			}
+		}
+		if !sawKeyword {
+			t.Error("no keyword-styled span found for \"if\"")
+		}
+		if !sawConstant {
+			t.Error("no constant-styled span found for \"true\"/\"false\"/\"null\"")
 		}
 	})
 }

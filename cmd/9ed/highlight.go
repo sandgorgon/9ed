@@ -47,27 +47,47 @@ func highlightsFor(ext string, body string, theme style.Theme) []widget.StyleSpa
 // cLangRe tokenizes C/C++ well enough for coloring, not for correctness
 // — same "good enough heuristic" the CSegmenter comment already accepts
 // for this codebase's non-Go languages. Comment and string alternatives
-// are listed ahead of keyword/number in the top-level alternation
-// deliberately: regexHighlights relies on Go's regexp package resolving
-// alternation leftmost-first (Perl-like, not POSIX longest-match), so a
-// keyword spelled out inside a string literal or a comment is matched
-// by the earlier, wider alternative first and never separately matches
-// the keyword group.
+// are listed ahead of keyword/number/constant/type/preprocessor in the
+// top-level alternation deliberately: regexHighlights relies on Go's
+// regexp package resolving alternation leftmost-first (Perl-like, not
+// POSIX longest-match), so a keyword spelled out inside a string literal
+// or a comment is matched by the earlier, wider alternative first and
+// never separately matches the keyword group. constant and type are
+// disjoint word sets from keyword, so their position relative to it
+// doesn't matter the same way. preprocessor colors an entire `#...`
+// directive line as one span (including e.g. a `#define`'s macro body)
+// rather than separately highlighting tokens inside it — the same
+// "whole construct, one color" simplification mdLangRe's codeblock group
+// already makes.
 var cLangRe = regexp.MustCompile(
 	`(?P<comment>//[^\n]*|(?s:/\*.*?\*/))` +
 		`|(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')` +
+		`|(?P<preprocessor>(?m:^[ \t]*#[ \t]*\w+[^\n]*))` +
 		`|(?P<number>\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?[uUlLfF]*\b)` +
-		`|(?P<keyword>\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|_Bool|_Complex|_Imaginary|class|namespace|public|private|protected|template|typename|virtual|override|new|delete|this|true|false|nullptr|using|friend|operator|try|catch|throw|explicit|mutable|constexpr|static_cast|dynamic_cast|const_cast|reinterpret_cast)\b)`,
+		`|(?P<constant>\b(?:true|false|NULL|nullptr)\b)` +
+		`|(?P<type>\b(?:size_t|ssize_t|ptrdiff_t|wchar_t|intptr_t|uintptr_t|FILE|va_list|bool|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\b)` +
+		`|(?P<keyword>\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|_Bool|_Complex|_Imaginary|class|namespace|public|private|protected|template|typename|virtual|override|new|delete|this|using|friend|operator|try|catch|throw|explicit|mutable|constexpr|static_cast|dynamic_cast|const_cast|reinterpret_cast)\b)`,
 )
 
 // bashLangRe tokenizes Bash/POSIX-shell well enough for coloring — the
 // same heuristic trade-off as cLangRe, matching BashSegmenter's own
 // "not a real shell grammar" disclaimer (it doesn't track heredocs
 // either, so a keyword-like word inside one can still get colored).
+// variable is listed ahead of string so a bare $VAR/${VAR} still gets
+// colored outside of a quoted string; a $VAR that appears *inside* a
+// double-quoted string is left as part of that (earlier-matching) string
+// span rather than separately colored — the same "string wins whatever
+// it contains" behavior comment/string already get in cLangRe. builtin
+// lists common command names (echo, cd, test, ...) that aren't already
+// in the keyword list below; the existing keyword list's own local/
+// export/declare/... (arguably builtins themselves) are left alone
+// rather than reclassified, to keep this change additive only.
 var bashLangRe = regexp.MustCompile(
 	`(?P<comment>#[^\n]*)` +
 		`|(?P<string>"(?:\\.|[^"\\])*"|'[^']*')` +
+		`|(?P<variable>\$\{[^}\n]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!_-])` +
 		`|(?P<number>\b\d+\b)` +
+		`|(?P<builtin>\b(?:echo|printf|read|cd|pwd|pushd|popd|dirs|test|let|set|shopt|alias|unalias|type|command|kill|wait|jobs|fg|bg|ulimit|umask|getopts)\b)` +
 		`|(?P<keyword>\b(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|function|in|select|time|coproc|return|break|continue|local|export|readonly|declare|typeset|unset|shift|exit|trap|eval|exec|source)\b)`,
 )
 
@@ -82,11 +102,24 @@ var bashLangRe = regexp.MustCompile(
 // Haskell identifier (see HaskellSegmenter's hsIsIdentByte), so trying
 // to recognize 'a' as a char literal risks misreading an identifier
 // like x' as the start of an unterminated one instead.
+//
+// pragma ({-# ... #-}) is listed first, ahead of the general block
+// comment: a pragma is lexically a subset of the block-comment pattern
+// (both are {- ... -} delimited), so per this file's leftmost-first
+// alternation rule (see cLangRe's own doc comment) it has to be tried
+// before the wider comment alternative or that alternative always wins
+// first and the pragma is never colored distinctly. type matches any
+// capitalized identifier — Haskell's own naming convention for both type
+// and data constructors, not a guess — and is listed after keyword,
+// which is fine since the two sets are disjoint (Haskell's keywords are
+// all lowercase).
 var haskellLangRe = regexp.MustCompile(
-	`(?P<comment>--[^\n]*|(?s:\{-.*?-\}))` +
+	`(?P<pragma>(?s:\{-#.*?#-\}))` +
+		`|(?P<comment>--[^\n]*|(?s:\{-.*?-\}))` +
 		`|(?P<string>"(?:\\.|[^"\\])*")` +
 		`|(?P<number>\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?\b)` +
-		`|(?P<keyword>\b(?:module|import|qualified|as|hiding|type|data|newtype|class|instance|deriving|where|let|in|case|of|do|if|then|else|forall|infixl|infixr|infix)\b)`,
+		`|(?P<keyword>\b(?:module|import|qualified|as|hiding|type|data|newtype|class|instance|deriving|where|let|in|case|of|do|if|then|else|forall|infixl|infixr|infix)\b)` +
+		`|(?P<type>\b[A-Z][A-Za-z0-9_']*\b)`,
 )
 
 // mdBacktick and mdTripleBacktick hold literal backtick runs — a Go raw
@@ -104,33 +137,45 @@ const (
 // regex-based languages already accept, not a CommonMark parser:
 // nesting, escaped delimiters, and a tilde-fenced block that closes
 // with a mismatched backtick fence (or vice versa) aren't tracked.
-// (?m) is set globally so ^/$ in the heading/blockquote/codeblock
-// groups mean line, not string, boundaries; (?s:...) is scoped to just
-// the codeblock alternative so '.' matches a newline there without
-// affecting the other groups' own "no newline" character classes.
-// Alternatives are ordered so a fenced/inline code span, once matched,
-// wins over a heading/blockquote marker that happens to appear inside
-// it — see cLangRe's own doc comment on why leftmost-first alternation
-// order matters for this package's regex highlighters.
+// (?m) is set globally so ^/$ in the heading/blockquote/codeblock/
+// listmarker/hr groups mean line, not string, boundaries; (?s:...) is
+// scoped to just the codeblock alternative so '.' matches a newline
+// there without affecting the other groups' own "no newline" character
+// classes. Alternatives are ordered so a fenced/inline code span, once
+// matched, wins over a heading/blockquote marker that happens to appear
+// inside it — see cLangRe's own doc comment on why leftmost-first
+// alternation order matters for this package's regex highlighters. bold/
+// italic are listed ahead of listmarker/hr for the same reason: a line
+// like "*emphasis on its own line*" would otherwise misread its leading
+// "*" as a bullet, but since italic only matches when a closing "*"
+// follows on the same line, a bare bullet ("* item", no closing "*")
+// still falls through to listmarker. image is listed ahead of link, but
+// the two can't actually collide — image is anchored on a leading "!"
+// link's pattern doesn't have, so whichever comes first, the two never
+// compete for the same starting position; ordering them this way just
+// mirrors how a reader thinks of them (image as a variant of link).
 var mdLangRe = regexp.MustCompile(`(?m)` +
 	`(?P<codeblock>(?s:^` + mdTripleBacktick + `[^\n]*\n.*?\n` + mdTripleBacktick + `[ \t]*$|^~~~[^\n]*\n.*?\n~~~[ \t]*$))` +
 	`|(?P<code>` + mdBacktick + `[^` + mdBacktick + `\n]+` + mdBacktick + `)` +
 	`|(?P<bold>\*\*[^*\n]+\*\*|__[^_\n]+__)` +
 	`|(?P<italic>\*[^*\n]+\*|_[^_\n]+_)` +
+	`|(?P<strike>~~[^~\n]+~~)` +
 	`|(?P<heading>^#{1,6} [^\n]*)` +
+	`|(?P<image>!\[[^\]\n]*\]\([^)\n]*\))` +
 	`|(?P<link>\[[^\]\n]*\]\([^)\n]*\))` +
-	`|(?P<blockquote>^>[^\n]*)`,
+	`|(?P<blockquote>^>[^\n]*)` +
+	`|(?P<listmarker>^[ \t]*(?:[-*+]|\d+[.)])[ \t]+)` +
+	`|(?P<hr>^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$)`,
 )
 
 // regexHighlights runs spec's combined regex over body once and returns
 // one StyleSpan per match, styled by whichever named capture group
 // matched via styleFn — regexGroupStyle for cLangRe/bashLangRe/
-// haskellLangRe (the same four semantic roles styleFor already maps
-// for Go, reused so those languages read consistently), mdGroupStyle
-// for mdLangRe (Markdown's own inline-construct roles, which don't fit
-// that four-role scheme). Byte offsets from the regexp package are
-// translated to the rune offsets widget.TextArea.Highlights expects,
-// same as goHighlights.
+// haskellLangRe (the same semantic roles styleFor already maps for Go,
+// reused so those languages read consistently), mdGroupStyle for
+// mdLangRe (Markdown's own inline-construct roles, which don't fit that
+// scheme). Byte offsets from the regexp package are translated to the
+// rune offsets widget.TextArea.Highlights expects, same as goHighlights.
 func regexHighlights(body string, theme style.Theme, spec *regexp.Regexp, styleFn func(string, style.Theme) (cell.Style, bool)) []widget.StyleSpan {
 	if body == "" {
 		return nil
@@ -160,7 +205,20 @@ func regexHighlights(body string, theme style.Theme, spec *regexp.Regexp, styleF
 }
 
 // regexGroupStyle maps a regexLangRe named group to the same semantic
-// roles styleFor uses for Go tokens.
+// roles styleFor uses for Go tokens, extended with the type/constant/
+// builtin/variable roles styleFor's predeclared-identifier lookups add
+// for Go — "preprocessor" (C), "builtin" (Bash), and "pragma" (Haskell)
+// all share the Error role since each flags a "special, not user code"
+// construct; "variable" (Bash) reuses the Primary role "type" uses in
+// C/Haskell, since no single regex-language spec here emits both groups,
+// so there's no collision. Error, not Info, deliberately: style.Theme's
+// DefaultDark/DefaultLight define Accent and Info as the exact same RGB
+// value (see upstream-specs/tui-accent-info-color-collision.md), so a
+// constant (Accent) and a builtin/preprocessor/pragma (would-be Info)
+// would render identically — Error is the nearest other role this
+// package doesn't already use for a code-language role, and (per
+// DefaultDark's own doc comment) is contrast-checked and
+// colorblind-separated the same as Success/Warning.
 func regexGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 	switch name {
 	case "comment":
@@ -171,19 +229,30 @@ func regexGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 		return cell.Style{Fg: theme.Warning}, true
 	case "keyword":
 		return cell.Style{Fg: theme.Secondary, Attr: cell.AttrBold}, true
+	case "type", "variable":
+		return cell.Style{Fg: theme.Primary}, true
+	case "constant":
+		return cell.Style{Fg: theme.Accent}, true
+	case "preprocessor", "builtin", "pragma":
+		return cell.Style{Fg: theme.Error}, true
 	default:
 		return cell.Style{}, false
 	}
 }
 
 // mdGroupStyle maps an mdLangRe named group to a Markdown-specific
-// semantic role — deliberately not regexGroupStyle's four Go-token
-// roles, since Markdown's inline constructs (emphasis, headings,
-// links, quotes) don't map onto keyword/comment/string/number. Bold
-// and italic leave Fg at its zero value (see style.Theme's own doc
-// comment on Foreground/Background: a well-behaved TUI leaves plain
-// text alone) so those two pure text-decoration constructs only ever
-// add an attribute, never recolor the text.
+// semantic role — deliberately not regexGroupStyle's roles, since
+// Markdown's inline constructs (emphasis, headings, links, quotes)
+// don't map onto keyword/comment/string/number/type/constant/builtin.
+// Bold, italic, and strike leave Fg at its zero value (see style.Theme's
+// own doc comment on Foreground/Background: a well-behaved TUI leaves
+// plain text alone) so those pure text-decoration constructs only ever
+// add an attribute, never recolor the text. image reuses link's
+// underline but with Success instead of Info so the two read as
+// related-but-distinct, the same way link and blockquote each get their
+// own color; listmarker and hr get Warning/Secondary — the two theme
+// roles this function otherwise leaves idle — so every one of
+// mdLangRe's ten groups now has its own distinct look.
 func mdGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 	switch name {
 	case "codeblock", "code":
@@ -192,12 +261,20 @@ func mdGroupStyle(name string, theme style.Theme) (cell.Style, bool) {
 		return cell.Style{Attr: cell.AttrBold}, true
 	case "italic":
 		return cell.Style{Attr: cell.AttrItalic}, true
+	case "strike":
+		return cell.Style{Attr: cell.AttrStrikethrough}, true
 	case "heading":
 		return cell.Style{Fg: theme.Primary, Attr: cell.AttrBold}, true
 	case "link":
 		return cell.Style{Fg: theme.Info, Underline: cell.UnderlineSingle}, true
+	case "image":
+		return cell.Style{Fg: theme.Success, Underline: cell.UnderlineSingle}, true
 	case "blockquote":
 		return cell.Style{Fg: theme.Muted, Attr: cell.AttrItalic}, true
+	case "listmarker":
+		return cell.Style{Fg: theme.Warning}, true
+	case "hr":
+		return cell.Style{Fg: theme.Secondary}, true
 	default:
 		return cell.Style{}, false
 	}
@@ -226,7 +303,7 @@ func goHighlights(body string, theme style.Theme) []widget.StyleSpan {
 		if tok == token.EOF {
 			break
 		}
-		cellStyle, ok := styleFor(tok, theme)
+		cellStyle, ok := styleFor(tok, lit, theme)
 		if !ok {
 			continue
 		}
@@ -245,13 +322,47 @@ func goHighlights(body string, theme style.Theme) []widget.StyleSpan {
 	return spans
 }
 
-// styleFor maps a Go token kind to a theme color, reusing the theme's
-// semantic roles rather than hardcoding colors — keywords get the
-// theme's Secondary accent, comments Muted, string/char literals
-// Success, numeric literals Warning. Punctuation, identifiers, and
+// goPredeclaredTypes, goPredeclaredConstants, and goBuiltinFuncs are Go's
+// fixed predeclared-identifier sets (https://go.dev/ref/spec#Predeclared_identifiers)
+// — a static lookup against a spec-fixed list, not a heuristic, so it
+// carries none of the "good enough" caveat the regex-based languages'
+// keyword lists do. A local that shadows one of these (e.g. `len := 3`)
+// is still colored as the builtin, same trade-off widely accepted
+// elsewhere (e.g. chroma's Go lexer) — go/scanner alone can't tell a
+// shadowed use from the real one without a type-checker.
+var (
+	goPredeclaredTypes = map[string]bool{
+		"bool": true, "byte": true, "complex64": true, "complex128": true,
+		"error": true, "float32": true, "float64": true, "int": true,
+		"int8": true, "int16": true, "int32": true, "int64": true,
+		"rune": true, "string": true, "uint": true, "uint8": true,
+		"uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+		"any": true,
+	}
+	goPredeclaredConstants = map[string]bool{
+		"true": true, "false": true, "nil": true, "iota": true,
+	}
+	goBuiltinFuncs = map[string]bool{
+		"append": true, "cap": true, "clear": true, "close": true,
+		"complex": true, "copy": true, "delete": true, "imag": true,
+		"len": true, "make": true, "max": true, "min": true, "new": true,
+		"panic": true, "print": true, "println": true, "real": true,
+		"recover": true,
+	}
+)
+
+// styleFor maps a Go token kind (and, for IDENT, its literal text) to a
+// theme color, reusing the theme's semantic roles rather than hardcoding
+// colors — keywords get the theme's Secondary accent, comments Muted,
+// string/char literals Success, numeric literals Warning, predeclared
+// types Primary, predeclared constants Accent, builtin functions Error
+// (not Info — see regexGroupStyle's own doc comment on why: Accent and
+// Info are the same RGB value in both of style.Theme's default themes,
+// so a builtin function would render identically to a constant if it
+// used Info instead). Punctuation, ordinary identifiers, and
 // (deliberately) SEMICOLON — whose literal can be an auto-inserted "\n"
 // rather than real source text — get no override.
-func styleFor(tok token.Token, theme style.Theme) (cell.Style, bool) {
+func styleFor(tok token.Token, lit string, theme style.Theme) (cell.Style, bool) {
 	switch {
 	case tok.IsKeyword():
 		return cell.Style{Fg: theme.Secondary, Attr: cell.AttrBold}, true
@@ -261,25 +372,37 @@ func styleFor(tok token.Token, theme style.Theme) (cell.Style, bool) {
 		return cell.Style{Fg: theme.Success}, true
 	case tok == token.INT || tok == token.FLOAT || tok == token.IMAG:
 		return cell.Style{Fg: theme.Warning}, true
+	case tok == token.IDENT && goPredeclaredTypes[lit]:
+		return cell.Style{Fg: theme.Primary}, true
+	case tok == token.IDENT && goPredeclaredConstants[lit]:
+		return cell.Style{Fg: theme.Accent}, true
+	case tok == token.IDENT && goBuiltinFuncs[lit]:
+		return cell.Style{Fg: theme.Error}, true
 	default:
 		return cell.Style{}, false
 	}
 }
 
-// kyuStyleFor maps a kyu token kind to one of styleFor's same four
-// semantic roles: TRUE/FALSE/NULL and kyu's own keywords (if/else/
-// while/break/continue/bind/unbind) get the keyword role; a PATH
+// kyuStyleFor maps a kyu token kind to one of styleFor's same semantic
+// roles: kyu's real control-flow keywords (if/else/while/break/continue/
+// bind/unbind) get the keyword role; TRUE/FALSE/NULL — values, not
+// control flow — get the constant role instead, splitting them out from
+// keyword the same way styleFor does for Go's true/false/nil; a PATH
 // literal gets the string role — it's as much a literal value as a
-// quoted string, just without quotes; INT/FLOAT/DURATION get the
-// number role. STRING itself is deliberately not handled here — see
+// quoted string, just without quotes; INT/FLOAT/DURATION get the number
+// role. STRING itself is deliberately not handled here — see
 // kyuHighlights, which styles it directly since its span needs
 // recomputing from raw source rather than trusting the token's own
 // (decoded) Literal length. Everything else (operators, punctuation,
-// IDENT) gets no override, same as Go's punctuation/identifiers.
+// IDENT) gets no override, same as Go's punctuation/identifiers — kyu's
+// lexer has no separate builtin-function token kind (external commands
+// go through IDENT/PERCENT instead), so no builtin role is possible here.
 func kyuStyleFor(kind ktoken.Kind, theme style.Theme) (cell.Style, bool) {
 	switch kind {
-	case ktoken.TRUE, ktoken.FALSE, ktoken.NULL, ktoken.IF, ktoken.ELSE, ktoken.BIND, ktoken.UNBIND, ktoken.WHILE, ktoken.BREAK, ktoken.CONTINUE:
+	case ktoken.IF, ktoken.ELSE, ktoken.BIND, ktoken.UNBIND, ktoken.WHILE, ktoken.BREAK, ktoken.CONTINUE:
 		return cell.Style{Fg: theme.Secondary, Attr: cell.AttrBold}, true
+	case ktoken.TRUE, ktoken.FALSE, ktoken.NULL:
+		return cell.Style{Fg: theme.Accent}, true
 	case ktoken.PATH:
 		return cell.Style{Fg: theme.Success}, true
 	case ktoken.INT, ktoken.FLOAT, ktoken.DURATION:
