@@ -83,28 +83,34 @@ Nav mode:
   f            toggle 'todo' flag on current card
   r            toggle 'needs-review' flag on current card
   u            revert current card's unsaved body edits
+  y            copy current card
+  x            cut current card (copy, then empty its body)
+  p / P        paste card below / above (from 'y'/'x')
   o / O        insert card below / above
   b            list other running 9ed buffers
   t            toggle light/dark theme
   ^s           save
-  q, ^c        quit
+  q, ^q        quit
 
 Edit mode:
   esc          back to Nav
   ^↑ / ^↓      jump to previous / next card, staying in Edit
   ^n / ^p      jump to next / previous search match
+  ^c           copy selection
+  ^x           cut selection
+  ^v           paste (replaces selection, if any)
   ^s           save
-  ^c           quit
+  ^q           quit
 
 Note mode (entered with 'n' from Nav):
   esc          back to Nav
   ^s           save
-  ^c           quit
+  ^q           quit
 
 Browse mode (bare '9ed' or '9ed <dir>'):
   j/k, ↑/↓     move
   enter        open file, or descend into directory
-  q, ^c        quit without opening anything
+  q, ^q        quit without opening anything
 
 Buffer picker (entered with 'b' from Nav):
   j/k, ↑/↓     move
@@ -388,6 +394,23 @@ type model struct {
 	// a session are never touched. Keyed by index into cards. Cleared
 	// on a successful Save, since src/cards are resynced to it then.
 	edited map[int]string
+
+	// register/hasSel/selStart/selEnd are clipboard.go's cut/copy/paste
+	// state. register is 9ed's own single yank slot, shared by Nav
+	// mode's whole-card 'y'/'x'/'p'/'P' and Edit mode's selection-level
+	// Ctrl+Insert/Shift+Insert/Ctrl+Shift+Insert — never cleared on Save
+	// (unlike m.edited), matching a real clipboard's "survives until
+	// the next copy" lifetime rather than a per-session edit tracker's.
+	// hasSel/selStart/selEnd mirror the currently-mounted card's active
+	// selection, fed continuously by editView's TextArea
+	// OnSelectionChange (tui v0.9.0, tui#42) exactly the way cursorPos
+	// is fed by OnCursorChange — see clearEditSelection for why these
+	// have to be reset on every fresh mount rather than left to update
+	// themselves.
+	register string
+	hasSel   bool
+	selStart int
+	selEnd   int
 
 	saveErr string // last save's error, if any; cleared by the next successful save
 
@@ -766,6 +789,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.gotoLineCursor = nil
 		if len(m.cards) > 0 {
 			m.editing = true
+			m.clearEditSelection()
 		}
 
 	case clickCardMsg:
@@ -776,6 +800,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.cursor = v.idx
 		m.gotoLineCursor = nil
 		m.editing = true
+		m.clearEditSelection()
 
 	case editChangedMsg:
 		m.setEdited(m.cursor, v.value)
@@ -885,7 +910,55 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.insertCard(idx, pos)
 		m.cursor = idx
 		m.editing = true
+		m.clearEditSelection()
 		m.view.publish(m.path, m.src, m.cards, m.edited)
+
+	case copyCardMsg:
+		if len(m.cards) > 0 {
+			m.setRegister(m.cardBody(m.cursor))
+		}
+
+	case cutCardMsg:
+		// Copy-then-empty, not a structural delete: 9ed's existing
+		// convention (see removeCard's own doc comment) is that a card
+		// with real content is removed by emptying its body and letting
+		// Save's resegmentation drop it, never by splicing m.cards
+		// directly — cutting a card reuses that exact path rather than
+		// inventing an immediate-delete primitive 9ed doesn't otherwise
+		// have. The card visibly stays in Nav's list (marked dirty)
+		// until the next Save, same as any other body edit.
+		if len(m.cards) > 0 {
+			m.setRegister(m.cardBody(m.cursor))
+			m.setEdited(m.cursor, "")
+			m.view.publish(m.path, m.src, m.cards, m.edited)
+		}
+
+	case pasteCardMsg:
+		// Mirrors insertMsg exactly, plus pre-filling the new card's
+		// body from the register — a no-op with nothing registered yet,
+		// so 'p'/'P' before any copy/cut never creates a stray empty
+		// card (insertMsg's own 'o'/'O' is the direct way to do that).
+		if m.register == "" {
+			break
+		}
+		m.cancelPendingNav()
+		m.gotoLineCursor = nil
+		idx, pos := 0, 0
+		if len(m.cards) > 0 {
+			idx, pos = m.cursor+1, m.cards[m.cursor].Span[1]
+			if v == pasteAbove {
+				idx, pos = m.cursor, m.cards[m.cursor].Span[0]
+			}
+		}
+		m.insertCard(idx, pos)
+		m.cursor = idx
+		m.setEdited(idx, m.register)
+		m.editing = true
+		m.clearEditSelection()
+		m.view.publish(m.path, m.src, m.cards, m.edited)
+
+	case selectionChangedMsg:
+		m.hasSel, m.selStart, m.selEnd = v.ok, v.start, v.end
 
 	case p9WriteMsg:
 		if v.cardIdx < 0 || v.cardIdx >= len(m.cards) {
@@ -988,8 +1061,15 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 
 	case input.KeyEvent:
-		// Ctrl+C is a global "get me out of here" regardless of mode.
-		if v.Mod&input.ModCtrl != 0 && v.Rune == 'c' {
+		// Ctrl+Q is a global "get me out of here" regardless of mode —
+		// Ctrl+C used to hold this job, but freeing it up is what lets
+		// Edit mode claim Ctrl+C/X/V for copy/cut/paste below (see
+		// clipboard.go's doc comment); confirmed free of both TextArea's
+		// own key claims (handleKey has no 'q' case at all) and any
+		// terminal-driver meaning (Ctrl+S already works as "save," not
+		// XOFF, so software flow control is already disabled and Ctrl+Q
+		// carries no leftover XON meaning either).
+		if v.Mod&input.ModCtrl != 0 && v.Rune == 'q' {
 			return m, tui.Quit()
 		}
 		// Ctrl+S saves from either mode — confirmed safe to let TextArea
@@ -1097,6 +1177,12 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			}
 			if v.Mod&input.ModCtrl != 0 && v.Rune == 'p' {
 				m.jumpToMatch(-1)
+				return m, nil
+			}
+			// Ctrl+C/Ctrl+X/Ctrl+V: copy/cut/paste the active selection —
+			// available here at all because quit moved to Ctrl+Q above;
+			// see clipboard.go's doc comment for the full reasoning.
+			if m.editClipboardKeyEvent(v) {
 				return m, nil
 			}
 			return m, nil // never fall through to the 'q' check below:
@@ -1383,13 +1469,14 @@ func (m *model) editView() tui.Node {
 	}
 
 	textarea := widget.TextArea(widget.TextAreaOptions{
-		Theme:          theme,
-		Value:          body,
-		Highlights:     highlights,
-		InitialCursor:  initialCursor,
-		Gutter:         gutter,
-		OnChange:       func(v string) tui.Msg { return editChangedMsg{value: v} },
-		OnCursorChange: func(offset int) tui.Msg { return cursorMovedMsg{offset: offset} },
+		Theme:             theme,
+		Value:             body,
+		Highlights:        highlights,
+		InitialCursor:     initialCursor,
+		Gutter:            gutter,
+		OnChange:          func(v string) tui.Msg { return editChangedMsg{value: v} },
+		OnCursorChange:    func(offset int) tui.Msg { return cursorMovedMsg{offset: offset} },
+		OnSelectionChange: func(start, end int, ok bool) tui.Msg { return selectionChangedMsg{start: start, end: end, ok: ok} },
 		// A ReleaseKey distinct from plain Esc — see the input.KeyEvent
 		// case in Update for why plain Esc must NOT be this widget's
 		// configured release key.
@@ -1416,7 +1503,7 @@ func (m *model) editView() tui.Node {
 	// setJumpTarget) — Span is unchanged there, so without jumpGen the
 	// existing widget instance would be reused and never see the new
 	// InitialCursor at all.
-	help := m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^s: save   ^c: quit", m.path, m.dirtyMark(), card.Kind)),
+	help := m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^c/^x/^v: copy/cut/paste   ^s: save   ^q: quit", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 
 	return tui.Box(layout.Vertical,
@@ -1475,7 +1562,7 @@ type helpSection struct {
 var helpSections = []helpSection{
 	{"GLOBAL (any mode)", [][2]string{
 		{"^s", "save"},
-		{"^c", "quit"},
+		{"^q", "quit"},
 	}},
 	{"NAV (default view)", [][2]string{
 		{"j/k, up/down", "move"},
@@ -1488,6 +1575,9 @@ var helpSections = []helpSection{
 		{"f", "toggle todo flag"},
 		{"r", "toggle needs-review flag"},
 		{"u", "revert card"},
+		{"y", "copy card"},
+		{"x", "cut card"},
+		{"p / P", "paste card below / above"},
 		{"/", "search"},
 		{"b", "buffer picker"},
 		{"t", "toggle theme"},
@@ -1498,6 +1588,9 @@ var helpSections = []helpSection{
 		{"esc", "back to nav"},
 		{"^up / ^down", "prev / next card"},
 		{"^n / ^p", "next / prev search match"},
+		{"^c", "copy selection"},
+		{"^x", "cut selection"},
+		{"^v", "paste (replaces selection)"},
 		{"^s", "save"},
 	}},
 	{"SEARCH (/)", [][2]string{
@@ -1643,6 +1736,14 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return toggleFlagMsg{flag: flagNeedsReview}
 	case ke.Rune == 'u':
 		return revertMsg{}
+	case ke.Rune == 'y':
+		return copyCardMsg{}
+	case ke.Rune == 'x':
+		return cutCardMsg{}
+	case ke.Rune == 'p':
+		return pasteBelow
+	case ke.Rune == 'P':
+		return pasteAbove
 	case ke.Rune == 'b':
 		return startBufferPickerMsg{}
 	case ke.Rune == 'o':

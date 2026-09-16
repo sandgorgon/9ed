@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Bumped `tui` v0.8.1 -> v0.9.0: adds `TextArea`/`TextInput`
+  `OnSelectionChange(start, end int, ok bool)`, the capability
+  requested in [sandgorgon/tui#42](https://github.com/sandgorgon/tui/issues/42)
+  (filed this session) so a host app can learn what text, if any, is
+  selected — previously entirely private to the widget.
+- `cmd/9ed`: added cut/copy/paste, at two granularities sharing one
+  internal register: Nav mode's whole-card `y`/`x`/`p`/`P`, and Edit
+  mode's text-selection `Ctrl+C`/`Ctrl+X`/`Ctrl+V` (built on the new
+  `OnSelectionChange` above). Copies/cuts also best-effort mirror the
+  register to the system clipboard via an OSC 52 write.
+- `cmd/9ed`: **quit moved from `Ctrl+C` to `Ctrl+Q`**, freeing `Ctrl+C`
+  for copy above — `q` still quits from Nav/Browse mode as before.
+  Verified live in tmux: `Ctrl+C` no longer quits, `Ctrl+Q` does, and
+  a selection copied in one card pastes correctly via `Ctrl+V` and via
+  Nav's `p`, in both directions.
+- Known limitation: Edit mode's selection cut/paste can't apply their
+  edit to the live TextArea the way a real keystroke would (tui has no
+  way for a host app to push an edit into an already-mounted widget
+  while preserving its internal undo/redo — see `clipboard.go`'s doc
+  comment), so they remount the card instead, which resets that card's
+  `Ctrl+Z`/`Ctrl+Y` undo history. Nav mode's existing `u` (revert card)
+  still recovers from this, just not as a single fine-grained undo
+  step.
+
 ## 0.8.3 - 2026-09-11
 
 - `cmd/9ed`: syntax highlighting now colors up to eight semantic roles

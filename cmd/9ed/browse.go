@@ -173,7 +173,10 @@ func (m *browseModel) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		return m, tui.Quit()
 
 	case input.KeyEvent:
-		if v.Mod&input.ModCtrl != 0 && v.Rune == 'c' {
+		// Ctrl+Q, not Ctrl+C — see main.go's Update for why (Ctrl+C is
+		// freed up for the editor's copy/cut/paste); kept consistent
+		// across every mode in the app, not just the main editor.
+		if v.Mod&input.ModCtrl != 0 && v.Rune == 'q' {
 			return m, tui.Quit()
 		}
 		if v.Rune == 'q' {
