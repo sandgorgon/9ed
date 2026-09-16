@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-09-15
 
 - Bumped `tui` v0.8.1 -> v0.9.0: adds `TextArea`/`TextInput`
   `OnSelectionChange(start, end int, ok bool)`, the capability
