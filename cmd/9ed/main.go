@@ -288,6 +288,25 @@ type model struct {
 	showingHelp bool
 	helpCursor  int
 
+	// confirmingQuit gates a quit key (Ctrl+Q, or Nav's 'q') behind a
+	// confirmation whenever hasUnsavedChanges() is true — see
+	// confirmQuitView and Update's dedicated top-of-KeyEvent block.
+	// Unlike showingHelp/pickingBuffers/replacing/noteEditing, this can
+	// be entered from *any* of them (quitting is global), so it's
+	// checked first in View's mode switch and Update's KeyEvent case
+	// rather than being mutually exclusive with just one specific mode
+	// — whatever mode was active underneath stays intact and resumes
+	// exactly where it was if the user cancels (Esc/'n').
+	confirmingQuit bool
+
+	// quitAfterSave is set when confirmingQuit's 's' (save & quit) is
+	// chosen — save is async (see saveCmd/saveDoneMsg), so the actual
+	// tui.Quit() has to wait for saveDoneMsg to confirm it succeeded,
+	// rather than firing right alongside the save request. A failed
+	// save clears it instead of quitting, leaving the usual "save
+	// failed: ..." status-line message (see statusLine) to explain why.
+	quitAfterSave bool
+
 	// pendingG is true right after a lone 'g' in Nav mode, waiting to
 	// see if a second 'g' completes vim's "go to first card" — reset by
 	// every other Update branch that represents a real alternate
@@ -544,12 +563,32 @@ func (m *model) isDirty(i int) bool {
 	return bodyDirty || m.noteEdited[i]
 }
 
+// hasUnsavedChanges reports whether Ctrl+S has anything at all to
+// write — any card's body or note. Shared by dirtyMark (the status
+// line's indicator) and Update's quit gate (confirmingQuit): quitting
+// with nothing dirty skips the confirmation entirely.
+func (m *model) hasUnsavedChanges() bool {
+	return len(m.edited) > 0 || len(m.noteEdited) > 0
+}
+
+// tryQuit is the shared entry point for every quit key (Ctrl+Q, Nav's
+// 'q') — quits immediately if there's nothing unsaved, otherwise opens
+// the confirmingQuit gate (see confirmQuitView) instead of quitting
+// outright.
+func (m *model) tryQuit() tui.Cmd {
+	if !m.hasUnsavedChanges() {
+		return tui.Quit()
+	}
+	m.confirmingQuit = true
+	return nil
+}
+
 // dirtyMark is the whole-deck "unsaved" indicator for the status line —
 // separate from, and in addition to, the per-card dirty markers in
 // navView, which show *which* cards changed rather than just whether
 // anything did.
 func (m *model) dirtyMark() string {
-	if len(m.edited) > 0 || len(m.noteEdited) > 0 {
+	if m.hasUnsavedChanges() {
 		return " [unsaved]"
 	}
 	return ""
@@ -1050,6 +1089,7 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 	case saveDoneMsg:
 		if v.err != nil {
 			m.saveErr = v.err.Error()
+			m.quitAfterSave = false
 			break
 		}
 		m.saveErr = ""
@@ -1059,8 +1099,29 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			m.cursor = max(len(m.cards)-1, 0)
 		}
 		m.view.publish(m.path, m.src, m.cards, m.edited)
+		if m.quitAfterSave {
+			return m, tui.Quit()
+		}
 
 	case input.KeyEvent:
+		// confirmingQuit fully owns every key while active, the same
+		// "no focused widget, so nothing else can partially claim a key"
+		// idiom m.replacing already uses (see confirmQuitView) — checked
+		// before even the global Ctrl+Q/Ctrl+S below, since those are
+		// exactly the keys this gate exists to intercept.
+		if m.confirmingQuit {
+			switch {
+			case v.Rune == 's' || (v.Mod&input.ModCtrl != 0 && v.Rune == 's'):
+				m.confirmingQuit = false
+				m.quitAfterSave = true
+				return m, m.saveCmd()
+			case v.Rune == 'q' || v.Rune == 'y' || (v.Mod&input.ModCtrl != 0 && v.Rune == 'q'):
+				return m, tui.Quit()
+			case (v.Key == input.KeyEsc && v.Mod == 0) || v.Rune == 'n':
+				m.confirmingQuit = false
+			}
+			return m, nil
+		}
 		// Ctrl+Q is a global "get me out of here" regardless of mode —
 		// Ctrl+C used to hold this job, but freeing it up is what lets
 		// Edit mode claim Ctrl+C/X/V for copy/cut/paste below (see
@@ -1068,9 +1129,11 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		// own key claims (handleKey has no 'q' case at all) and any
 		// terminal-driver meaning (Ctrl+S already works as "save," not
 		// XOFF, so software flow control is already disabled and Ctrl+Q
-		// carries no leftover XON meaning either).
+		// carries no leftover XON meaning either). Routed through
+		// tryQuit rather than a bare tui.Quit() so unsaved work gates
+		// behind confirmQuitView instead of vanishing silently.
 		if v.Mod&input.ModCtrl != 0 && v.Rune == 'q' {
-			return m, tui.Quit()
+			return m, m.tryQuit()
 		}
 		// Ctrl+S saves from either mode — confirmed safe to let TextArea
 		// also see it: handleKey's literal-insert case explicitly
@@ -1265,14 +1328,34 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			return m, nil
 		}
 		if v.Rune == 'q' {
-			return m, tui.Quit()
+			return m, m.tryQuit()
 		}
 	}
 	return m, nil
 }
 
+// confirmQuitView renders the quit-with-unsaved-changes gate — entered
+// via confirmingQuit (Update's dedicated top-of-KeyEvent block)
+// whenever a quit key is pressed while hasUnsavedChanges() is true.
+// Same "no focused widget, plain Text" idiom replaceView's own summary
+// screen uses (see its doc comment for why): s/q/y/n/esc all need to
+// be claimed fully by Update, never partially reach some left-behind
+// focused widget. Deliberately doesn't try to show the mode
+// underneath (Nav/Edit/Note/...) — same "swap to a dedicated screen"
+// precedent as replaceView's own confirm walk and noteView, rather
+// than 9ed inventing a real modal/overlay concept for this one case.
+func (m *model) confirmQuitView() tui.Node {
+	msg := "Unsaved changes — s: save & quit   q: quit without saving   esc: cancel"
+	return tui.Box(layout.Vertical,
+		tui.Child(layout.Fill(1), tui.Box(layout.Vertical)),
+		tui.Child(layout.Length(1), m.statusBarNode(msg, m.theme.ChromeText())),
+	).Margin(1)
+}
+
 func (m *model) View() tui.Node {
 	switch {
+	case m.confirmingQuit:
+		return m.confirmQuitView()
 	case m.showingHelp:
 		return m.helpView()
 	case m.pickingBuffers:

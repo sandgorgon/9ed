@@ -25,6 +25,14 @@
   `Ctrl+Z`/`Ctrl+Y` undo history. Nav mode's existing `u` (revert card)
   still recovers from this, just not as a single fine-grained undo
   step.
+- `cmd/9ed`: quitting (`q` or `Ctrl+Q`) with unsaved card bodies or
+  notes now asks first instead of discarding them silently —
+  `s`: save & quit, `q`: quit without saving, `esc`: cancel. Quitting a
+  clean buffer is unaffected (still instant, no prompt). Verified live
+  in tmux: a clean quit stays instant; a dirty quit shows the prompt;
+  `esc` cancels back to whatever was on screen; `s` writes the pending
+  change (confirmed via the `.9an` sidecar) then exits; `q` exits with
+  the change discarded.
 
 ## 0.8.3 - 2026-09-11
 
