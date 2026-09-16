@@ -124,6 +124,7 @@ func (m *model) abandonEmptyInsert() {
 // tui-textarea-ctrl-updown-not-claimed.md for the full writeups.
 func (m *model) jumpCard(delta int) {
 	m.gotoLineCursor = nil
+	m.clearEditSelection()
 	abandoning := m.isEmptyInsert(m.cursor)
 	if abandoning {
 		m.abandonEmptyInsert()

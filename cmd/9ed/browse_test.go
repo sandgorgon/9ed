@@ -157,11 +157,11 @@ func TestBrowseModelQuitKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("Ctrl+C quits without choosing", func(t *testing.T) {
+	t.Run("Ctrl+Q quits without choosing", func(t *testing.T) {
 		m := newBrowseModel(t.TempDir(), &browseResult{})
-		_, cmd := m.Update(input.KeyEvent{Mod: input.ModCtrl, Rune: 'c'})
+		_, cmd := m.Update(input.KeyEvent{Mod: input.ModCtrl, Rune: 'q'})
 		if cmd == nil {
-			t.Error("Update(Ctrl+C) returned nil Cmd, want tui.Quit()")
+			t.Error("Update(Ctrl+Q) returned nil Cmd, want tui.Quit()")
 		}
 	})
 }
