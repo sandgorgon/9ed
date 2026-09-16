@@ -13,7 +13,7 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.8.3`): M0–M12 implemented —
+Status (`v0.9.0`): M0–M12 implemented —
 deck segmentation for all six target languages (Markdown, Go, Bash,
 C/C++, Haskell, `kyu`, plus a plain-text fallback for anything else),
 Nav/Edit mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/
@@ -27,7 +27,10 @@ browsing](#directory-browsing) below), Acme-style `path:line` plumbing
 (see [Plumbing](#plumbing) below), a cross-instance buffer picker (`b`, see [Cross-instance buffer
 picker](#cross-instance-buffer-picker) below), a per-card revert for
 unsaved body edits (`u`, see [Reverting unsaved
-edits](#reverting-unsaved-edits) below), precise go-to-line, line numbers
+edits](#reverting-unsaved-edits) below), cut/copy/paste at both the
+card and text-selection level with a quit confirmation for unsaved
+changes (see [Cut, copy, and paste](#cut-copy-and-paste) below),
+precise go-to-line, line numbers
 in a themed gutter, syntax highlighting for all six target languages (see
 [Syntax highlighting](#syntax-highlighting) below), mouse click/scroll in Nav
 mode (see [Mouse support](#mouse-support) below), atomic save, a runtime
@@ -190,6 +193,35 @@ step back only, no redo, and it resets on Save just like the underlying
 edit itself: it's a session convenience, not version history, which is
 deliberately left to `9vcs` rather than improvised here. Scoped to
 body content only; a note or badge is untouched.
+
+## Cut, copy, and paste
+
+One internal register, shared by two granularities: Nav mode's
+whole-card `y` (copy) / `x` (cut) / `p`/`P` (paste below/above,
+mirroring `o`/`O`), and Edit mode's text-selection `Ctrl+C`/`Ctrl+X`/
+`Ctrl+V`. Copying a card and pasting it into a selection (or the
+reverse) round-trips through the same slot, the way vim's default
+register serves both yank/delete and put regardless of what produced
+it. Copies/cuts also best-effort mirror to the system clipboard via an
+OSC 52 write — paste always reads back from the internal register
+rather than the clipboard, since OSC 52's read direction is disabled
+by default in most terminals for security.
+
+This is also why quit moved from `Ctrl+C` to `Ctrl+Q`: freeing
+`Ctrl+C` is what lets Edit mode use the standard copy/cut/paste trio
+instead of some non-standard alternative. `q` still quits from Nav
+mode as before. Quitting with unsaved card bodies or notes now asks
+first (`s`: save & quit, `q`: quit without saving, `esc`: cancel)
+rather than discarding them silently; a clean buffer still quits
+instantly.
+
+Known limitation: Edit mode's selection cut/paste can't apply their
+edit to the live `TextArea` the way a real keystroke would — `tui` has
+no way for a host app to push an edit into an already-mounted widget
+while preserving its internal undo/redo — so they remount the card
+instead, which resets that card's own `Ctrl+Z`/`Ctrl+Y` undo history.
+Nav mode's `u` (see above) still recovers from this, just not as a
+single fine-grained undo step.
 
 ## Mouse support
 
