@@ -18,6 +18,9 @@ func TestSegmenterForUnknownExtension(t *testing.T) {
 	if _, ok := segmenterFor("main.go").(deck.GoSegmenter); !ok {
 		t.Error("segmenterFor(\"main.go\") should still return GoSegmenter, not the fallback")
 	}
+	if _, ok := segmenterFor("config.ky").(deck.KyuSegmenter); !ok {
+		t.Errorf("segmenterFor(%q) = %T, want deck.KyuSegmenter", "config.ky", segmenterFor("config.ky"))
+	}
 }
 
 // newNavTestModel builds a model with n cards, none of them backed by

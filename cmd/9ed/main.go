@@ -250,7 +250,7 @@ func segmenterFor(path string) deck.Segmenter {
 		return deck.CSegmenter{}
 	case ".hs":
 		return deck.HaskellSegmenter{}
-	case ".kyu":
+	case ".kyu", ".ky":
 		return deck.KyuSegmenter{}
 	default:
 		return deck.PlainSegmenter{}
