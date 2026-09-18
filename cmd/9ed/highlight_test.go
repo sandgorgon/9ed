@@ -155,6 +155,14 @@ func TestHighlightsFor(t *testing.T) {
 		}
 	})
 
+	t.Run(".ky also dispatches to kyuHighlights", func(t *testing.T) {
+		got := highlightsFor(".ky", `x := "hi" # note`, theme)
+		want := kyuHighlights(`x := "hi" # note`, theme)
+		if len(got) != len(want) || len(got) == 0 {
+			t.Fatalf("highlightsFor(.ky) = %v, want kyuHighlights() output %v", got, want)
+		}
+	})
+
 	t.Run(".go still dispatches to goHighlights", func(t *testing.T) {
 		got := highlightsFor(".go", "package foo", theme)
 		want := goHighlights("package foo", theme)
