@@ -29,7 +29,7 @@ func highlightsFor(ext string, body string, theme style.Theme) []widget.StyleSpa
 	switch ext {
 	case ".go":
 		return goHighlights(body, theme)
-	case ".kyu":
+	case ".kyu", ".ky":
 		return kyuHighlights(body, theme)
 	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
 		return regexHighlights(body, theme, cLangRe, regexGroupStyle)
