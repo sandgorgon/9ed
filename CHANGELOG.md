@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1 - 2026-09-18
+
+- `cmd/9ed`: recognize `.ky` as an alias extension for `kyu`, alongside
+  the existing `.kyu`, in both `segmenterFor` (card segmentation) and
+  `highlightsFor` (syntax highlighting). `9sh`'s own config/namespace
+  files (e.g. `~/.config/9/config/config.ky`) use the shorter `.ky`
+  extension, which previously fell back to `deck.PlainSegmenter` with
+  no card structure and no highlighting at all.
+
 ## 0.9.0 - 2026-09-15
 
 - Bumped `tui` v0.8.1 -> v0.9.0: adds `TextArea`/`TextInput`
