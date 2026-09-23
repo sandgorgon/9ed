@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2 - 2026-09-22
+
+- README: added a "Quick start" (open -> Nav mode -> move -> Edit ->
+  save -> quit) and a consolidated "Keybindings" reference table,
+  grounded directly in `helpSections` (`cmd/9ed/main.go`) -- the exact
+  data the app's own `?` screen renders. There was previously no basic-
+  usage walkthrough anywhere in the README, just ten deep feature-by-
+  feature sections assuming you already knew how to use the editor.
+  Docs only, no code changes.
+
 ## 0.9.1 - 2026-09-18
 
 - `cmd/9ed`: recognize `.ky` as an alias extension for `kyu`, alongside
