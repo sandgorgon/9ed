@@ -67,6 +67,135 @@ git clone https://github.com/sandgorgon/9ed.git && cd 9ed
 go build -o 9ed ./cmd/9ed
 ```
 
+## Quick start
+
+```
+9ed main.go
+```
+
+opens `main.go` decomposed into **cards** — a Go func, a Markdown
+heading, a `kyu` top-level statement, and so on, depending on the
+file's language. You land in **Nav mode**: a scrollable list of the
+file's cards, one line each. This is the view you spend most of your
+time in — think of it as one level up from a plain text editor, where
+you move between meaningful chunks of the file instead of individual
+lines.
+
+- `j`/`k` (or the arrow keys) move the highlighted card up/down.
+- `gg` jumps to the first card, `G` to the last; typing digits first
+  (e.g. `12G`) jumps to line 12 directly, not card 12 — handy for
+  landing exactly where a compiler error or `grep` match points.
+- `Enter` opens the highlighted card in **Edit mode** — a real text
+  editor, scoped to just that card's body. Type normally; `Esc` goes
+  back to Nav (not `Ctrl+C` — see [Cut, copy, and
+  paste](#cut-copy-and-paste) below for why).
+- `Ctrl+S` saves, from either mode.
+- `Ctrl+Q` quits. With unsaved changes, it asks first — `s`: save and
+  quit, `q`/`y`: quit without saving, `esc`/`n`: cancel — a clean
+  buffer quits instantly, no prompt.
+- `?` opens the full keybindings screen any time — the same reference
+  as [Keybindings](#keybindings) below, always in sync since both come
+  from the same place in the code. `?`, `q`, or `Esc` closes it.
+
+Nothing here is destructive to try: `o`/`O` (insert a new card below/
+above the highlighted one) and everything else Nav mode's own key
+table below lists are all easy to undo with `u` (revert) before you
+ever save.
+
+Beyond a single file, `9ed dir/` (or bare `9ed`, which uses the current
+directory) opens a directory browser instead — see [Directory
+browsing](#directory-browsing). `9ed main.go:42` opens a file and jumps
+straight to that line — see [Plumbing](#plumbing).
+
+## Keybindings
+
+The same reference is always one `?` away inside 9ed itself, so this
+table never has to be memorized — it's here for browsing before you've
+even installed it, or searching this page.
+
+**Global (either mode):**
+
+| Key | Action |
+|---|---|
+| `Ctrl+S` | Save |
+| `Ctrl+Q` | Quit (asks first if there are unsaved changes) |
+
+**Nav mode:**
+
+| Key | Action |
+|---|---|
+| `j`/`k`, `↑`/`↓` | Move |
+| `gg` / `G` | First / last card |
+| `{n}G` | Go to line `n` |
+| `PgUp`/`PgDn` | Page up/down |
+| `Enter` | Edit the highlighted card |
+| `o` / `O` | Insert a new card below / above |
+| `n` | Edit the card's note |
+| `f` | Toggle its `todo` flag |
+| `r` | Toggle its `needs-review` flag |
+| `u` | Revert unsaved edits to this card |
+| `y` | Copy card |
+| `x` | Cut card |
+| `p` / `P` | Paste card below / above |
+| `/` | Search |
+| `b` | Open the buffer picker |
+| `t` | Toggle light/dark theme |
+| `q` | Quit |
+| `?` | Toggle this help screen |
+
+**Edit mode** (editing one card's body):
+
+| Key | Action |
+|---|---|
+| `Esc` | Back to Nav |
+| `Ctrl+↑` / `Ctrl+↓` | Jump to the previous / next card, staying in Edit mode |
+| `Ctrl+N` / `Ctrl+P` | Next / previous search match |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste the selection |
+| `Ctrl+S` | Save |
+
+**Search** (`/` from Nav):
+
+| Key | Action |
+|---|---|
+| type | Filter by title, or a regexp pattern |
+| `Ctrl+R` | Switch between the pattern field and a replacement field |
+| `Enter` | Jump to the match, or start a confirm-replace walk if a replacement is set |
+| `Esc` | Cancel |
+
+**Replace** (mid confirm-replace walk):
+
+| Key | Action |
+|---|---|
+| `y` | Replace this match |
+| `n` | Skip it |
+| `a` | Replace all remaining matches, no more asking |
+| `q` / `Esc` | Stop |
+
+**Note editing** (`n` from Nav):
+
+| Key | Action |
+|---|---|
+| `Esc` | Back to Nav |
+| `Ctrl+S` | Save |
+
+**Buffer picker** (`b` from Nav):
+
+| Key | Action |
+|---|---|
+| `j`/`k`, `↑`/`↓` | Move |
+| `Enter` | Inspect the selected buffer |
+| `Esc` / `q` | Back |
+
+**Buffer inspect:**
+
+| Key | Action |
+|---|---|
+| `Enter` | Jump to the typed line in that buffer |
+| `Esc` | Back |
+
+See [Cross-instance buffer picker](#cross-instance-buffer-picker) for
+what the buffer picker/inspect views are actually for.
+
 ## What this is
 
 - On disk, a file 9ed edits is always plain text — 9ed never invents a
