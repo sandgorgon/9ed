@@ -433,9 +433,9 @@ for the (now-resolved, as of `9sh` v0.3.1) gap this uncovered.
 
 | Module | Version |
 |---|---|
-| `github.com/sandgorgon/9p` | v0.7.1 |
-| `github.com/sandgorgon/9sh` | v0.4.0 |
-| `github.com/sandgorgon/tui` | v0.4.1 |
+| `github.com/sandgorgon/9p` | v0.10.0 |
+| `github.com/sandgorgon/9sh` | v0.12.0 |
+| `github.com/sandgorgon/tui` | v0.12.0 |
 
 `9vcs` and `9auth` are siblings in the same Plan-9-flavored family but are
 not 9ed dependencies — see [Why no `9auth`](#why-no-9auth) above.

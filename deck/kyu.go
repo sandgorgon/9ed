@@ -123,7 +123,7 @@ func kyuExprTok(e kast.Expr) ktoken.Token {
 	case *kast.ErrCheck:
 		return kyuExprTok(n.X)
 	case *kast.Background:
-		return kyuExprTok(n.Call)
+		return kyuExprTok(n.Expr)
 	case *kast.UnaryExpr:
 		return n.Tok
 	case *kast.Ident:
