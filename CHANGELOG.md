@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.3 - 2026-10-07
 
 - Bumped `9sh` v0.4.24 -> v0.12.0, which also moves `9p` v0.7.1 ->
   v0.10.0 and `tui` v0.9.0 -> v0.12.0 (9sh's own requirements). The one
