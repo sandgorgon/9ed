@@ -53,6 +53,14 @@ func TestKyuSegmenter(t *testing.T) {
 			want: []Card{{Kind: "define", Title: "x   :=   5", Name: "x"}},
 		},
 		{
+			name: "background expression statement — card starts at the command, not the &",
+			src:  "x := 1\n\n%sleep \"5\" &\n",
+			want: []Card{
+				{Kind: "define", Title: "x := 1", Name: "x"},
+				{Kind: "expr", Title: "%sleep \"5\" &"},
+			},
+		},
+		{
 			name: "bind statement",
 			src:  "bind /a, /b\n",
 			want: []Card{{Kind: "bind", Title: "bind /a, /b"}},

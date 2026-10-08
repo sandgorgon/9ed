@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Bumped `9sh` v0.4.24 -> v0.12.0, which also moves `9p` v0.7.1 ->
+  v0.10.0 and `tui` v0.9.0 -> v0.12.0 (9sh's own requirements). The one
+  source change: 9sh renamed the kyu AST `Background` node's `Call` field
+  to `Expr`, so `deck/kyu.go`'s leftmost-token logic follows it. A new
+  `TestKyuSegmenter` case covers a bare background (`&`) statement, which
+  had no test. README's dependency table now matches `go.mod`.
+
 ## 0.9.2 - 2026-09-22
 
 - README: added a "Quick start" (open -> Nav mode -> move -> Edit ->
