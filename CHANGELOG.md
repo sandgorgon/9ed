@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 - 2026-10-12
 
 - `deck.Links` scans a card's text for navigable references
   (`path.ext:LINE`, `path.ext#anchor`, Markdown links, URLs, and
