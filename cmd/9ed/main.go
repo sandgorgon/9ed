@@ -88,6 +88,8 @@ Nav mode:
   p / P        paste card below / above (from 'y'/'x')
   o / O        insert card below / above
   b            list other running 9ed buffers
+  l            list links in current card; enter to follow
+  ^o           back to the file a link was followed from
   t            toggle light/dark theme
   ^s           save
   q, ^q        quit
@@ -111,6 +113,12 @@ Browse mode (bare '9ed' or '9ed <dir>'):
   j/k, ↑/↓     move
   enter        open file, or descend into directory
   q, ^q        quit without opening anything
+
+Link picker (entered with 'l' from Nav):
+  j/k, ↑/↓     move
+  enter        follow (hands off to an instance that has the file open,
+               else opens it in place — which needs a clean buffer)
+  q            back
 
 Buffer picker (entered with 'b' from Nav):
   j/k, ↑/↓     move
@@ -168,7 +176,7 @@ func run() int {
 		// their own output — pasting a build error's own "file:line" as
 		// the argument Just Works, no separate flag needed.
 		path, targetLine, hasLine = parseFileLine(os.Args[1])
-		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		if pathIsDir(path) { // namespace-aware: a bound path like /p isn't an OS dir
 			// A directory can't have a meaningful line target — an
 			// argument shaped like "somedir:42" is a nonsensical
 			// combination, not worth a dedicated error; targetLine is
@@ -206,9 +214,7 @@ func run() int {
 	// overwhelmingly common case today, since nothing writes one yet)
 	// or any read failure just means no notes for this file, not an
 	// error opening it.
-	if sidecar, err := readFileNS(notes.SidecarPath(path)); err == nil {
-		m.notesFile = notes.Parse(sidecar)
-	}
+	m.notesFile = readNotes(path)
 	if hasLine {
 		m.goToLine(targetLine)
 	}
@@ -221,6 +227,7 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "9ed: warning: 9p server disabled:", err)
 	} else {
 		defer stop()
+		m.onPathChange = func(p string) { updateDiscovery(p) }
 	}
 
 	app := tui.NewApp(m, 80, 24)
@@ -367,6 +374,25 @@ type model struct {
 	bufferInspect  *bufferStatus
 	plumbLine      string
 	plumbResult    string
+
+	// pickingLinks/linkList/linkCursor/linkStatus are the link picker's
+	// state (links.go) — 'l' from Nav mode opens it. linkStatus is a
+	// one-line message ("another file — ...") shown in place of the
+	// count when following an entry isn't possible.
+	pickingLinks bool
+	linkList     []linkEntry
+	linkCursor   int
+	linkStatus   string
+
+	// backStack is the cross-file link history (see links.go's
+	// followFileLink/goBack); Ctrl+O pops it. onPathChange, if set, is
+	// told whenever openFile replaces m.path, so the buffer's
+	// discovery file (see serveBuffer) doesn't keep advertising the old
+	// one. notice is a one-line message appended to the Nav status
+	// line, cleared by the next keypress.
+	backStack    []fileFrame
+	onPathChange func(path string)
+	notice       string
 
 	// activeSearch is the last *committed* search pattern (m.query at the
 	// moment Enter confirmed it), kept around after m.searching goes
@@ -624,6 +650,9 @@ func (m *model) helpStyle() cell.Style {
 // statusLine appends the last save error (if any) to rest, so a failed
 // save is visible without a dedicated status area.
 func (m *model) statusLine(rest string) string {
+	if m.notice != "" {
+		rest += "  " + m.notice
+	}
 	if m.saveErr != "" {
 		return rest + "  save failed: " + m.saveErr
 	}
@@ -936,6 +965,36 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		// is always already nil by the time this fires.
 		m.pickingBuffers = false
 
+	case startLinkPickerMsg:
+		m.cancelPendingNav()
+		m.pickingLinks = true
+		m.linkList = m.currentCardLinks()
+		m.linkCursor = 0
+		m.linkStatus = ""
+
+	case linkPickerUpMsg:
+		m.linkCursor = max(m.linkCursor-1, 0)
+		m.linkStatus = ""
+
+	case linkPickerDownMsg:
+		m.linkCursor = min(m.linkCursor+1, max(len(m.linkList)-1, 0))
+		m.linkStatus = ""
+
+	case linkPickerEnterMsg:
+		if cmd := m.followLink(); cmd != nil {
+			return m, cmd
+		}
+
+	case linkHandoffMsg:
+		m.finishHandoff(v)
+
+	case linkPickerBackMsg:
+		m.pickingLinks = false
+
+	case backLinkMsg:
+		m.cancelPendingNav()
+		m.goBack()
+
 	case insertMsg:
 		m.cancelPendingNav()
 		m.gotoLineCursor = nil
@@ -1104,6 +1163,10 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		}
 
 	case input.KeyEvent:
+		// A notice (see model.notice) lives until the next keypress —
+		// the raw key reaches Update before whatever Msg it produces, so
+		// a notice set by that Msg survives to be seen.
+		m.notice = ""
 		// confirmingQuit fully owns every key while active, the same
 		// "no focused widget, so nothing else can partially claim a key"
 		// idiom m.replacing already uses (see confirmQuitView) — checked
@@ -1242,6 +1305,14 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				m.jumpToMatch(-1)
 				return m, nil
 			}
+			// Ctrl+O: back to the file a cross-file link was followed
+			// from (see links.go's goBack) — available here too, not
+			// just in Nav, because a "file:line" link lands in Edit
+			// mode. Refused with unsaved changes, like following.
+			if v.Mod&input.ModCtrl != 0 && v.Rune == 'o' {
+				m.goBack()
+				return m, nil
+			}
 			// Ctrl+C/Ctrl+X/Ctrl+V: copy/cut/paste the active selection —
 			// available here at all because quit moved to Ctrl+Q above;
 			// see clipboard.go's doc comment for the full reasoning.
@@ -1304,6 +1375,13 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 			// entirely instead of just leaving the picker).
 			return m, nil
 		}
+		if m.pickingLinks {
+			// Same dual-dispatch guard as the buffer picker's list
+			// view just above: the focused List turns raw keys into
+			// linkPicker*Msg itself, so this only stops them reaching
+			// the bare-'t'/'q' checks below.
+			return m, nil
+		}
 		if m.showingHelp {
 			// Esc, 'q', or '?' again all close it — mirrors the buffer
 			// picker's list view (bare-key checks below must never see
@@ -1360,6 +1438,8 @@ func (m *model) View() tui.Node {
 		return m.helpView()
 	case m.pickingBuffers:
 		return m.pickerView()
+	case m.pickingLinks:
+		return m.linkPickerView()
 	case m.replacing:
 		return m.replaceView()
 	case m.noteEditing:
@@ -1663,6 +1743,8 @@ var helpSections = []helpSection{
 		{"p / P", "paste card below / above"},
 		{"/", "search"},
 		{"b", "buffer picker"},
+		{"l", "links in this card"},
+		{"^o", "back to previous file (after a link)"},
 		{"t", "toggle theme"},
 		{"q", "quit"},
 		{"?", "toggle this help"},
@@ -1671,6 +1753,7 @@ var helpSections = []helpSection{
 		{"esc", "back to nav"},
 		{"^up / ^down", "prev / next card"},
 		{"^n / ^p", "next / prev search match"},
+		{"^o", "back to previous file (after a link)"},
 		{"^c", "copy selection"},
 		{"^x", "cut selection"},
 		{"^v", "paste (replaces selection)"},
@@ -1691,6 +1774,11 @@ var helpSections = []helpSection{
 	{"NOTE", [][2]string{
 		{"esc", "back to nav"},
 		{"^s", "save"},
+	}},
+	{"LINK PICKER (l)", [][2]string{
+		{"j/k, up/down", "move"},
+		{"enter", "follow"},
+		{"q", "back"},
 	}},
 	{"BUFFER PICKER (b)", [][2]string{
 		{"j/k, up/down", "move"},
@@ -1805,6 +1893,10 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return m.searchKeyEvent(ke)
 	}
 	switch {
+	// Checked before everything else: a Ctrl+letter arrives as the bare
+	// letter plus ModCtrl, so Ctrl+O would otherwise match 'o' below.
+	case ke.Mod&input.ModCtrl != 0 && ke.Rune == 'o':
+		return backLinkMsg{}
 	case ke.Key == input.KeyUp || ke.Rune == 'k':
 		return navUp
 	case ke.Key == input.KeyDown || ke.Rune == 'j':
@@ -1829,6 +1921,8 @@ func (m *model) listEvent(e input.Event) tui.Msg {
 		return pasteAbove
 	case ke.Rune == 'b':
 		return startBufferPickerMsg{}
+	case ke.Rune == 'l':
+		return startLinkPickerMsg{}
 	case ke.Rune == 'o':
 		return insertBelow
 	case ke.Rune == 'O':
