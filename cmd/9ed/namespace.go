@@ -55,7 +55,7 @@ func serveBuffer(view *bufferView, path string, writes chan<- p9WriteMsg, gotos 
 		l.Close()
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
-	if err := os.WriteFile(discoveryPath, []byte(path+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(discoveryPath, []byte(discoveryContent(path)), 0o600); err != nil {
 		l.Close()
 		return nil, fmt.Errorf("write discovery file: %w", err)
 	}
@@ -68,4 +68,42 @@ func serveBuffer(view *bufferView, path string, writes chan<- p9WriteMsg, gotos 
 		os.Remove(sockPath)
 		os.Remove(discoveryPath)
 	}, nil
+}
+
+// updateDiscovery rewrites this buffer's discovery file (see
+// serveBuffer) with path — called when following a cross-file link
+// replaces the open file, so another instance's buffer picker lists
+// what's actually open. Best-effort: a failure leaves the old path
+// advertised, which is stale, not broken.
+func updateDiscovery(path string) {
+	_ = os.WriteFile(filepath.Join(runtimeDir(), strconv.Itoa(os.Getpid())), []byte(discoveryContent(path)), 0o600)
+}
+
+// discoveryContent is a discovery file's whole content: the path on
+// line 1 (see advertisedPath) and, only under 9sh, the namespace
+// socket on line 2 — the identity that says which namespace the path
+// is to be read in. Outside 9sh the file is the single path line it
+// has always been.
+func discoveryContent(path string) string {
+	out := advertisedPath(path) + "\n"
+	if ns := os.Getenv(nsSockEnv); ns != "" {
+		out += ns + "\n"
+	}
+	return out
+}
+
+// advertisedPath is what a discovery file says this buffer has open:
+// the absolute OS path when there's no 9sh namespace in play, so
+// another instance (a different cwd) can tell whether it's the same
+// file — see findOpenBuffer. Under 9sh a relative path is rooted at
+// /local, not the OS cwd (see nsopen.go), so it's left as given rather
+// than resolved against a cwd that doesn't apply.
+func advertisedPath(path string) string {
+	if os.Getenv(nsSockEnv) != "" {
+		return path
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }

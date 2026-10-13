@@ -13,7 +13,7 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.9.3`): M0–M12 implemented —
+Status (`v0.10.0`): M0–M12 implemented —
 deck segmentation for all six target languages (Markdown, Go, Bash,
 C/C++, Haskell, `kyu`, plus a plain-text fallback for anything else),
 Nav/Edit mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/
@@ -139,6 +139,8 @@ even installed it, or searching this page.
 | `p` / `P` | Paste card below / above |
 | `/` | Search |
 | `b` | Open the buffer picker |
+| `l` | List the card's links; `Enter` follows one |
+| `Ctrl+O` | Back to the file a link was followed from |
 | `t` | Toggle light/dark theme |
 | `q` | Quit |
 | `?` | Toggle this help screen |
@@ -150,6 +152,7 @@ even installed it, or searching this page.
 | `Esc` | Back to Nav |
 | `Ctrl+↑` / `Ctrl+↓` | Jump to the previous / next card, staying in Edit mode |
 | `Ctrl+N` / `Ctrl+P` | Next / previous search match |
+| `Ctrl+O` | Back to the file a link was followed from |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste the selection |
 | `Ctrl+S` | Save |
 
@@ -177,6 +180,16 @@ even installed it, or searching this page.
 |---|---|
 | `Esc` | Back to Nav |
 | `Ctrl+S` | Save |
+
+**Link picker** (`l` from Nav):
+
+| Key | Action |
+|---|---|
+| `j`/`k`, `↑`/`↓` | Move |
+| `Enter` | Follow the link (opens another file in place if needed) |
+| `q` | Back |
+
+See [Following links](#following-links) for what counts as a link.
 
 **Buffer picker** (`b` from Nav):
 
@@ -297,6 +310,51 @@ per annotated card, an optional `flags: ...` line, then the note body —
 readable and diffable on its own, and meant to be committed alongside
 the source, not personal scratch. Ctrl+S writes it alongside the
 source, but only once something in it has actually changed.
+
+## Following links
+
+`l` from Nav mode lists the links in the current card — including
+unsaved edits — and `Enter` follows the selected one. What counts:
+
+- `path.ext:LINE`, `path.ext#anchor`, Markdown `[text](target)`, and
+  `http(s)://` URLs, found in **comments** for Go, C-family, shell,
+  Haskell and kyu files, and anywhere in the text of Markdown and
+  unrecognized files. Strings and code are never scanned.
+- A bare symbol only after an explicit marker: `@see Name` or
+  `ref: Name` (also `@see file.go:Name`, `@see #heading`). A plain word
+  in a comment is never a link.
+
+An anchor is matched against card names (exactly, then as a
+Markdown-style slug: `install-guide` finds "Install Guide"). A
+`path:line` that names the open file jumps to that line.
+
+A link to **another file** is opened one of two ways. If another 9ed
+instance already has that file open, the link is **handed off** to it —
+its cursor jumps (via its `/goto`, like the buffer picker's plumb), and
+this instance stays exactly where it is, unsaved edits and all. If the
+file isn't open anywhere (or that instance can't be reached), it's
+opened *in place*: 9ed is one process per buffer, so following it
+replaces this instance's file rather than starting another. A relative path is tried against the
+open file's directory and then each ancestor directory, nearest first
+(so a repo-root-relative `deck/golang.go:27` works from anywhere
+below the root). The link can land on a line (`file:42`), a card
+(`file:Name`, `file#heading`), or the first card. Each jump pushes the
+file and card you left onto a back-stack; `Ctrl+O` in Nav mode pops it.
+
+Under a 9sh session (`-listen-unix`), paths are namespace paths, and a
+hand-off only goes to instances started under the **same** namespace
+(each instance's discovery file records its `$_9SH_UNIX_SOCK`) — `/p` is
+a bind that another session may resolve differently. A relative path is
+rooted at `/local`, so the ancestor walk can't climb above it; an
+absolute one (`/p/…`) can. A path that names a directory is never
+opened as a file: link resolution skips it, and `9ed /p/cmd` goes to the
+directory browser.
+
+Opening in place — and going back — is refused while there are unsaved
+changes (`Ctrl+S` first, then follow): there's one buffer, so nowhere to
+keep them. A hand-off replaces nothing, so it isn't. A missing file, or an anchor that isn't in the target file,
+is reported and leaves the current file untouched. External URLs are
+listed but not opened.
 
 ## Cross-instance buffer picker
 

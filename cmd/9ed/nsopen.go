@@ -45,6 +45,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	p9 "github.com/sandgorgon/9p"
 	"github.com/sandgorgon/9p/client"
@@ -172,6 +173,16 @@ func nsReadFile(path string) (data []byte, found bool, err error) {
 	}
 	defer f.Clunk()
 
+	// A 9P directory can be opened and read like a file — the "content"
+	// is its packed stat records — so os.ReadFile's EISDIR has to be
+	// reproduced here by hand, or a directory silently opens as a
+	// buffer of binary garbage (and, worse, would be saved back over).
+	// A failed Stat isn't treated as "not a directory": fall through
+	// and let the open/read report whatever is really wrong.
+	if st, statErr := f.Stat(); statErr == nil && st.Mode.IsDir() {
+		return nil, true, fmt.Errorf("nsopen: %s: %w", path, syscall.EISDIR)
+	}
+
 	file, err := f.OpenFile(p9.OREAD)
 	if err != nil {
 		return nil, true, fmt.Errorf("nsopen: %s: %w", path, err)
@@ -183,6 +194,50 @@ func nsReadFile(path string) (data []byte, found bool, err error) {
 		return nil, true, fmt.Errorf("nsopen: %s: %w", path, err)
 	}
 	return data, true, nil
+}
+
+// nsIsDir reports whether path names a directory in 9sh's namespace.
+// found follows nsReadFile's contract: false means the namespace has
+// nothing to say (no namespace reachable, or an absolute path it doesn't
+// claim) and the caller should ask the OS instead; true means isDir is
+// the namespace's answer — including false for a path that doesn't
+// exist there, which is "not a directory", not an error.
+func nsIsDir(path string) (isDir, found bool) {
+	c, root, err := dialNamespace()
+	if err != nil {
+		return false, false
+	}
+	defer c.Close()
+
+	elems := nsPathElems(path)
+	if len(elems) == 0 {
+		return false, false // the namespace root itself: let the OS answer
+	}
+	f, err := root.Walk(elems...)
+	if err != nil {
+		if filepath.IsAbs(path) {
+			return false, false // not a namespace path; try the real fs
+		}
+		return false, true
+	}
+	defer f.Clunk()
+	st, err := f.Stat()
+	if err != nil {
+		return false, true
+	}
+	return st.Mode.IsDir(), true
+}
+
+// pathIsDir reports whether path is a directory, asking 9sh's namespace
+// first (see nsIsDir) and the OS otherwise — the namespace-aware
+// counterpart of an os.Stat(...).IsDir() check, which can't see a path
+// that exists only as a namespace bind (e.g. /p).
+func pathIsDir(path string) bool {
+	if isDir, found := nsIsDir(path); found {
+		return isDir
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }
 
 // nsListDir attempts to list path's entries by walking it in 9sh's
