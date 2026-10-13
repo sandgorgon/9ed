@@ -45,6 +45,13 @@ import (
 type discoveredBuffer struct {
 	pid  int
 	path string
+	// ns is the 9sh namespace socket ($_9SH_UNIX_SOCK) the buffer was
+	// started under — empty outside 9sh, and for a discovery file
+	// written before this field existed. Two buffers' paths mean the
+	// same file only if their ns agree (see findOpenBuffer): a path
+	// like /p/x.go is a bind that different 9sh sessions can resolve
+	// differently.
+	ns string
 }
 
 // discoverBuffers lists every other running 9ed buffer for this user,
@@ -73,7 +80,10 @@ func discoverBuffers(selfPID int) []discoveredBuffer {
 		if err != nil {
 			continue
 		}
-		out = append(out, discoveredBuffer{pid: pid, path: strings.TrimSpace(string(data))})
+		// Line 1 is the path; an optional line 2 is the namespace
+		// socket (see discoveryContent).
+		path, ns, _ := strings.Cut(strings.TrimRight(string(data), "\r\n"), "\n")
+		out = append(out, discoveredBuffer{pid: pid, path: strings.TrimSpace(path), ns: strings.TrimSpace(ns)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
 	return out

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/sandgorgon/9p/examples/dirfs"
@@ -236,4 +237,67 @@ func TestNsSaveFile(t *testing.T) {
 			t.Errorf("got (found=%v, err=%v), want (true, non-nil)", found, err)
 		}
 	})
+}
+
+// A 9P directory is readable — a read returns its stat records — so
+// without an explicit check, reading one through the namespace
+// "succeeds" with garbage, where os.ReadFile on the same path errors.
+// Found against a live 9sh: readFileNS("/p/cmd") returned 74 bytes.
+func TestNsReadFileRejectsDirectory(t *testing.T) {
+	parent := t.TempDir()
+	cwd := filepath.Join(parent, "local")
+	if err := os.MkdirAll(filepath.Join(cwd, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "sub", "x.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	startTestNamespace(t, parent)
+
+	for _, path := range []string{"sub", "./sub", "/local/sub", "/local"} {
+		data, err := readFileNS(path)
+		if !errors.Is(err, syscall.EISDIR) {
+			t.Errorf("readFileNS(%q) = (%d bytes, %v), want an EISDIR error", path, len(data), err)
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("readFileNS(%q): a directory must not look like a missing file (that would start an empty buffer over it)", path)
+		}
+	}
+	if data, err := readFileNS("sub/x.go"); err != nil || string(data) != "package x\n" {
+		t.Errorf("a regular file beside it: got (%q, %v)", data, err)
+	}
+}
+
+func TestPathIsDir(t *testing.T) {
+	parent := t.TempDir()
+	cwd := filepath.Join(parent, "local")
+	if err := os.MkdirAll(filepath.Join(cwd, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "note.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	outside := t.TempDir() // a real OS directory the namespace doesn't claim
+
+	check := func(path string, want bool) {
+		t.Helper()
+		if got := pathIsDir(path); got != want {
+			t.Errorf("pathIsDir(%q) = %v, want %v", path, got, want)
+		}
+	}
+
+	// No namespace: plain os.Stat.
+	check("sub", true)
+	check("note.md", false)
+	check("missing", false)
+
+	startTestNamespace(t, parent)
+	check("sub", true)
+	check("/local/sub", true)
+	check("note.md", false)
+	check("missing", false)           // a not-yet-created file is not a directory
+	check("nosuchdir/missing", false) // nor is one under a parent that doesn't exist
+	check(outside, true)              // an absolute path the namespace doesn't claim falls back to the OS
 }

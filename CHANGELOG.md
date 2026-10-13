@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- `deck.Links` scans a card's text for navigable references
+  (`path.ext:LINE`, `path.ext#anchor`, Markdown links, URLs, and
+  `@see`/`ref:` markers for bare symbols), restricted to comments for
+  Go, C-family, shell/kyu and Haskell. `deck.ResolveAnchor` maps an
+  anchor to a card by name or Markdown-style slug.
+- Nav mode `l` opens a link picker for the current card; `Enter`
+  follows same-file anchors and `path:line` links to the open file, or
+  opens another file *in place* (nearest-ancestor path resolution),
+  landing on its line, card, or first card. `Ctrl+O` returns via a
+  back-stack. Opening in place and going back are refused with unsaved
+  changes. If another 9ed instance already has the target file open,
+  the link is handed off to it (its `/goto`) instead, falling back to
+  opening in place if that instance is unreachable. External URLs are
+  listed but not opened. Discovery files now advertise the absolute
+  path (outside 9sh), and follow the open file when it changes, so
+  hand-off and the buffer picker stay accurate.
+- Fixed: reading a directory through 9sh's namespace "succeeded" with
+  its raw stat records (`os.ReadFile` errors), so `9ed /p/cmd` opened a
+  directory as a binary buffer and a link could resolve to one. Now an
+  `EISDIR` error; `9ed <dir>` is also detected through the namespace
+  (new `pathIsDir`) and goes to the browser.
+- Discovery files record the 9sh namespace socket on a second line
+  (absent outside 9sh, and old single-line files still parse). Link
+  hand-off only goes to a peer in the same namespace, since a path like
+  `/p/x.go` can mean different files in different sessions; relative
+  paths now hand off too, within one namespace.
+
 ## 0.9.3 - 2026-10-07
 
 - Bumped `9sh` v0.4.24 -> v0.12.0, which also moves `9p` v0.7.1 ->
