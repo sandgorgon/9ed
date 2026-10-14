@@ -346,3 +346,40 @@ func nsSaveFile(path string, data []byte) (found bool, err error) {
 	}
 	return true, nil
 }
+
+// nsRemoveFile deletes path through 9sh's namespace — the removal
+// counterpart to nsSaveFile, with the same found/err contract: found=
+// false means "not a namespace path, try the real fs", found=true
+// commits to err. A file that doesn't exist is not an error (nothing
+// to remove is the desired end state), matching removeFile's own
+// os.IsNotExist tolerance.
+func nsRemoveFile(path string) (found bool, err error) {
+	c, root, dialErr := dialNamespace()
+	if dialErr != nil {
+		return false, nil
+	}
+	defer c.Close()
+
+	dir, name, ok := splitParent(nsPathElems(path))
+	if !ok {
+		return false, nil
+	}
+
+	dirFid, walkErr := root.Walk(dir...)
+	if walkErr != nil {
+		if filepath.IsAbs(path) {
+			return false, nil
+		}
+		return true, fmt.Errorf("nsopen: %s: %w", path, walkErr)
+	}
+	defer dirFid.Clunk()
+
+	target, walkErr := dirFid.Walk(name)
+	if walkErr != nil {
+		return true, nil // nothing there to remove
+	}
+	if err := target.Remove(); err != nil { // Remove clunks target either way
+		return true, fmt.Errorf("nsopen: %s: %w", path, err)
+	}
+	return true, nil
+}
