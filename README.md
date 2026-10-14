@@ -326,6 +326,11 @@ unsaved edits — and `Enter` follows the selected one. What counts:
   `ref: Name` (also `@see file.go:Name`, `@see #heading`). A plain word
   in a comment is never a link.
 
+A *bare* `path.ext:LINE` or `path.ext#anchor` is only listed if that
+file actually exists (so `example.com:443` isn't mistaken for a file).
+Markdown links and `@see`/`ref:` targets are always listed, so a broken
+one shows up as broken.
+
 An anchor is matched against card names (exactly, then as a
 Markdown-style slug: `install-guide` finds "Install Guide"). A
 `path:line` that names the open file jumps to that line.

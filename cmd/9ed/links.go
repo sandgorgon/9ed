@@ -129,6 +129,18 @@ func (m *model) resolveLink(l deck.Link) linkEntry {
 	return e
 }
 
+// isBareLink reports whether l was written as a bare "path.ext:LINE" or
+// "path.ext#anchor" — as opposed to a Markdown link or an @see/ref:
+// marker, which say outright that a reference is meant.
+func isBareLink(l deck.Link) bool {
+	if l.URL != "" || l.Path == "" {
+		return false
+	}
+	return !strings.HasPrefix(l.Text, "[") &&
+		!strings.HasPrefix(l.Text, "@see") &&
+		!strings.HasPrefix(l.Text, "ref:")
+}
+
 // currentCardLinks scans the selected card's *current* body (so
 // unsaved edits count) with deck.Links.
 func (m *model) currentCardLinks() []linkEntry {
@@ -139,6 +151,15 @@ func (m *model) currentCardLinks() []linkEntry {
 	cards := []deck.Card{{Span: [2]int{0, len(body)}}}
 	var out []linkEntry
 	for _, l := range deck.Links(body, cards, filepath.Ext(m.path))[0] {
+		// A bare path is only a guess from its shape ("example.com:443"
+		// looks like file:line), so it counts as a link only if the
+		// file is really there. Explicit forms are always listed, so a
+		// broken one still shows up as broken.
+		if isBareLink(l) && !linkNamesFile(l.Path, m.path) {
+			if _, _, err := m.locateLinkFile(l.Path); err != nil {
+				continue
+			}
+		}
 		out = append(out, m.resolveLink(l))
 	}
 	return out

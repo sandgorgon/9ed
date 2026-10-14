@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A bare `path.ext:LINE` / `path.ext#anchor` is now only a link if the
+  file exists (looked up as when following), so things like
+  `example.com:443` aren't listed. Markdown links and `@see`/`ref:`
+  targets are still always listed.
 - The `?` help screen gains a "LINK FORMS" section (what `l` finds, and
   how following works), mirrored in the usage text.
 - The link picker's status line now says what `Enter` will do for the
