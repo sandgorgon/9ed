@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 - 2026-10-13
 
 - Fixed: deleting a deck's last note left a 0-byte `.9an` sidecar file
   behind on save. The sidecar is now removed (through the 9sh namespace
