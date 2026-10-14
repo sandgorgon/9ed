@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0 - 2026-10-13
+
+- A bare `path.ext:LINE` / `path.ext#anchor` is now only a link if the
+  file exists (looked up as when following), so things like
+  `example.com:443` aren't listed. Markdown links and `@see`/`ref:`
+  targets are still always listed.
+- The `?` help screen gains a "LINK FORMS" section (what `l` finds, and
+  how following works), mirrored in the usage text.
+- The link picker's status line now says what `Enter` will do for the
+  selected link (jump to card/line, open file, or why it can't be
+  followed).
+
 ## 0.10.1 - 2026-10-13
 
 - Fixed: deleting a deck's last note left a 0-byte `.9an` sidecar file
