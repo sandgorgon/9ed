@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 - 2026-10-13
 
 - A bare `path.ext:LINE` / `path.ext#anchor` is now only a link if the
   file exists (looked up as when following), so things like
