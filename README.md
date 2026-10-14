@@ -189,7 +189,9 @@ even installed it, or searching this page.
 | `Enter` | Follow the link (opens another file in place if needed) |
 | `q` | Back |
 
-See [Following links](#following-links) for what counts as a link.
+The status line shows what `Enter` will do for the selected link. The
+`?` help screen has a "LINK FORMS" reference of what counts as a link;
+see also [Following links](#following-links).
 
 **Buffer picker** (`b` from Nav):
 
@@ -323,6 +325,11 @@ unsaved edits — and `Enter` follows the selected one. What counts:
 - A bare symbol only after an explicit marker: `@see Name` or
   `ref: Name` (also `@see file.go:Name`, `@see #heading`). A plain word
   in a comment is never a link.
+
+A *bare* `path.ext:LINE` or `path.ext#anchor` is only listed if that
+file actually exists (so `example.com:443` isn't mistaken for a file).
+Markdown links and `@see`/`ref:` targets are always listed, so a broken
+one shows up as broken.
 
 An anchor is matched against card names (exactly, then as a
 Markdown-style slug: `install-guide` finds "Install Guide"). A

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sandgorgon/9p/server"
@@ -40,7 +41,8 @@ func TestLinkNamesFile(t *testing.T) {
 func newLinkTestModel() *model {
 	src := []byte("package p\n\n" +
 		"// Walrus follows Beta (@see Beta), see f.go:5, other.go:2,\n" +
-		"// https://example.com/x and @see Missing.\n" +
+		"// https://example.com/x and @see Missing, ghost.go:9, example.com:443,\n" +
+		"// and [kept](gone.go:3) even though gone.go isn't there.\n" +
 		"func Walrus() {}\n\n" +
 		"func Beta() {}\n")
 	cards := deck.GoSegmenter{}.Segment(src) // 0: preamble, 1: Walrus, 2: Beta
@@ -48,14 +50,30 @@ func newLinkTestModel() *model {
 }
 
 func TestLinkPicker(t *testing.T) {
+	// other.go must really exist for its bare reference to count; the
+	// ghost.go and example.com ones must be dropped as shape-only guesses.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "other.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
 	m := newLinkTestModel()
+	m.path = filepath.Join(dir, "f.go")
 	m.Update(startLinkPickerMsg{})
-	if !m.pickingLinks || len(m.linkList) != 5 {
-		t.Fatalf("pickingLinks=%v links=%d, want true and 5", m.pickingLinks, len(m.linkList))
+	if !m.pickingLinks || len(m.linkList) != 6 {
+		t.Fatalf("pickingLinks=%v links=%d, want true and 6: %+v", m.pickingLinks, len(m.linkList), m.linkList)
 	}
 	byText := map[string]linkEntry{}
 	for _, e := range m.linkList {
 		byText[e.link.Text] = e
+	}
+	for _, guess := range []string{"ghost.go:9", "example.com:443"} {
+		if _, ok := byText[guess]; ok {
+			t.Errorf("bare %q is listed, want it dropped (no such file)", guess)
+		}
+	}
+	if _, ok := byText["[kept](gone.go:3)"]; !ok {
+		t.Error("explicit Markdown link to a missing file was dropped, want it listed")
 	}
 
 	if e := byText["@see Beta"]; e.action != linkToCard || e.card != 2 {
@@ -88,7 +106,7 @@ func TestFollowLink(t *testing.T) {
 	t.Run("a line opens the card containing it", func(t *testing.T) {
 		m := newLinkTestModel()
 		m.pickingLinks = true
-		m.linkList = []linkEntry{{action: linkToLine, line: 7}}
+		m.linkList = []linkEntry{{action: linkToLine, line: 8}}
 		m.followLink()
 		if m.pickingLinks || m.cursor != 2 || !m.editing {
 			t.Errorf("pickingLinks=%v cursor=%d editing=%v, want false, 2 (Beta), true", m.pickingLinks, m.cursor, m.editing)
@@ -565,4 +583,45 @@ func TestHandoffUnderNS(t *testing.T) {
 			t.Errorf("path=%q stack=%d, want lib.go opened in place", m.path, len(m.backStack))
 		}
 	})
+}
+
+// TestHelpLinkFormsAreRecognized keeps the help screen's LINK FORMS
+// examples honest: each syntax-shaped example it shows must actually
+// scan as a link in a Markdown file.
+func TestHelpLinkFormsAreRecognized(t *testing.T) {
+	found := false
+	for _, l := range helpLines() {
+		if strings.HasPrefix(l, "LINK FORMS") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("help screen has no LINK FORMS section")
+	}
+	for _, ex := range []string{"path.go:42", "path.go#name", "[txt](#slug)", "[txt](path.go)", "@see Name", "ref: Name", "https://example.com"} {
+		src := []byte(ex + "\n")
+		cards := []deck.Card{{Span: [2]int{0, len(src)}}}
+		if got := deck.Links(src, cards, ".md")[0]; len(got) != 1 {
+			t.Errorf("%q: got %d links, want 1", ex, len(got))
+		}
+	}
+}
+
+func TestLinkHint(t *testing.T) {
+	m := &model{}
+	tests := []struct {
+		e    linkEntry
+		want string
+	}{
+		{linkEntry{action: linkToCard}, "jumps to that card"},
+		{linkEntry{action: linkToLine}, "jumps to that line"},
+		{linkEntry{action: linkToFile}, "opens that file"},
+		{linkEntry{link: deck.Link{URL: "https://x.y"}, note: "external URL"}, "doesn't open"},
+		{linkEntry{note: `no card named "x" in this file`}, "can't be followed"},
+	}
+	for _, tt := range tests {
+		if got := m.linkHint(tt.e); !strings.Contains(got, tt.want) {
+			t.Errorf("linkHint(%+v) = %q, want it to contain %q", tt.e, got, tt.want)
+		}
+	}
 }
