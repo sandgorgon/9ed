@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 - 2026-10-13
+
+- Fixed: deleting a deck's last note left a 0-byte `.9an` sidecar file
+  behind on save. The sidecar is now removed (through the 9sh namespace
+  when one is reachable, via new `nsRemoveFile`) when no notes remain.
+
 ## 0.10.0 - 2026-10-12
 
 - `deck.Links` scans a card's text for navigable references

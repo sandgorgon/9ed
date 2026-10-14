@@ -301,3 +301,27 @@ func TestPathIsDir(t *testing.T) {
 	check("nosuchdir/missing", false) // nor is one under a parent that doesn't exist
 	check(outside, true)              // an absolute path the namespace doesn't claim falls back to the OS
 }
+
+func TestNsRemoveFile(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd := filepath.Join(parent, "local")
+	t.Chdir(cwd)
+	startTestNamespace(t, parent)
+
+	target := filepath.Join(cwd, "gone.9an")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := nsRemoveFile("gone.9an"); !found || err != nil {
+		t.Fatalf("got (found=%v, err=%v), want (true, nil)", found, err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Errorf("file still exists, stat error = %v", err)
+	}
+	if found, err := nsRemoveFile("gone.9an"); !found || err != nil {
+		t.Errorf("removing an absent file: got (found=%v, err=%v), want (true, nil)", found, err)
+	}
+}
