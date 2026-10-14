@@ -58,7 +58,9 @@ type saveDoneMsg struct {
 // never block on I/O directly. The sidecar is only written at all when
 // a note was actually touched this session (m.noteEdited non-empty) —
 // otherwise a file that's never had a note gets no .9an written for it,
-// not an empty one.
+// not an empty one. And when the touched notes leave nothing to
+// persist (the last one was deleted), the sidecar file is removed
+// rather than overwritten with an empty one.
 func (m *model) saveCmd() tui.Cmd {
 	path := m.path
 	seg := m.seg
@@ -80,7 +82,13 @@ func (m *model) saveCmd() tui.Cmd {
 		// so the next Save retries it; re-writing the already-current
 		// source again is harmless).
 		if writeSidecar {
-			if err := atomicWrite(notes.SidecarPath(path), sidecar); err != nil {
+			var err error
+			if len(sidecar) == 0 {
+				err = removeFile(notes.SidecarPath(path))
+			} else {
+				err = atomicWrite(notes.SidecarPath(path), sidecar)
+			}
+			if err != nil {
 				return saveDoneMsg{err: err}
 			}
 		}
@@ -103,6 +111,19 @@ func atomicWrite(path string, data []byte) error {
 		return err
 	}
 	return atomicWriteOS(path, data)
+}
+
+// removeFile deletes path, preferring 9sh's namespace for the same
+// reason atomicWrite does (see nsRemoveFile). A path that is already
+// absent is not an error.
+func removeFile(path string) error {
+	if found, err := nsRemoveFile(path); found {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // atomicWriteOS writes data to path by writing a temp file in the same

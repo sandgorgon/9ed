@@ -232,3 +232,40 @@ func TestSaveCmdWritesSidecarOnlyWhenANoteChanged(t *testing.T) {
 		}
 	})
 }
+
+// TestSaveCmdRemovesSidecarWhenLastNoteDeleted covers deleting the only
+// note: the sidecar file must be removed, not left behind as an empty
+// file (Marshal of zero entries is zero bytes).
+func TestSaveCmdRemovesSidecarWhenLastNoteDeleted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.go")
+	src := []byte("package foo\n\nfunc Foo() error {\n\treturn nil\n}\n")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cards := deck.GoSegmenter{}.Segment(src)
+	sidecar := notes.SidecarPath(path)
+
+	m := newModel(path, src, deck.GoSegmenter{}, cards, nil, nil)
+	m.cursor = 1
+	m.noteEditing = true
+	mm, _ := m.Update(noteChangedMsg{value: "why this exists"})
+	m = mm.(*model)
+	if msg := m.saveCmd()(); msg.(saveDoneMsg).err != nil {
+		t.Fatalf("first save: %v", msg.(saveDoneMsg).err)
+	}
+	if fi, err := os.Stat(sidecar); err != nil || fi.Size() == 0 {
+		t.Fatalf("sidecar after first save: stat = %v, %v; want a non-empty file", fi, err)
+	}
+
+	// Empty the note and leave note mode, which drops the entry.
+	mm, _ = m.Update(noteChangedMsg{value: ""})
+	m = mm.(*model)
+	m.finalizeNoteEdit()
+	if msg := m.saveCmd()(); msg.(saveDoneMsg).err != nil {
+		t.Fatalf("second save: %v", msg.(saveDoneMsg).err)
+	}
+	if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
+		t.Errorf("sidecar should be removed after the last note is deleted, stat error = %v", err)
+	}
+}
