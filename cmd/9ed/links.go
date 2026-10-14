@@ -164,6 +164,23 @@ func (m *model) describeLink(e linkEntry) string {
 	return "(" + e.note + ")"
 }
 
+// linkHint says, for the picker's status line, what enter will do with
+// the selected entry — the row itself only shows where it points.
+func (m *model) linkHint(e linkEntry) string {
+	switch e.action {
+	case linkToCard:
+		return "enter jumps to that card in this file"
+	case linkToLine:
+		return "enter jumps to that line in this file"
+	case linkToFile:
+		return "enter opens that file (needs saved changes; ^o returns)"
+	}
+	if e.link.URL != "" {
+		return "URL: shown for reference, 9ed doesn't open it"
+	}
+	return "can't be followed: " + e.note
+}
+
 // followLink acts on the selected entry: close the picker and move, or
 // leave it open and say why not. The returned Cmd is non-nil only for a
 // hand-off to another instance, whose result arrives as linkHandoffMsg.
@@ -453,6 +470,9 @@ func (m *model) linkPickerView() tui.Node {
 	})
 
 	status := fmt.Sprintf("links in this card: %d", len(m.linkList))
+	if m.linkCursor >= 0 && m.linkCursor < len(m.linkList) {
+		status = fmt.Sprintf("link %d/%d: %s", m.linkCursor+1, len(m.linkList), m.linkHint(m.linkList[m.linkCursor]))
+	}
 	if m.linkStatus != "" {
 		status = m.linkStatus
 	}

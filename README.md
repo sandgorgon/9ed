@@ -189,7 +189,9 @@ even installed it, or searching this page.
 | `Enter` | Follow the link (opens another file in place if needed) |
 | `q` | Back |
 
-See [Following links](#following-links) for what counts as a link.
+The status line shows what `Enter` will do for the selected link. The
+`?` help screen has a "LINK FORMS" reference of what counts as a link;
+see also [Following links](#following-links).
 
 **Buffer picker** (`b` from Nav):
 

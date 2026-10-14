@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The `?` help screen gains a "LINK FORMS" section (what `l` finds, and
+  how following works), mirrored in the usage text.
+- The link picker's status line now says what `Enter` will do for the
+  selected link (jump to card/line, open file, or why it can't be
+  followed).
+
 ## 0.10.1 - 2026-10-13
 
 - Fixed: deleting a deck's last note left a 0-byte `.9an` sidecar file

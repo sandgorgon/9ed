@@ -119,6 +119,9 @@ Link picker (entered with 'l' from Nav):
   enter        follow (hands off to an instance that has the file open,
                else opens it in place — which needs a clean buffer)
   q            back
+  What 'l' finds: path.go:42, path.go#name, [text](target),
+  "@see Name" / "ref: Name", and https://... URLs (listed, not opened).
+  In code files only comments are scanned. ^o returns after a follow.
 
 Buffer picker (entered with 'b' from Nav):
   j/k, ↑/↓     move
@@ -1779,6 +1782,18 @@ var helpSections = []helpSection{
 		{"j/k, up/down", "move"},
 		{"enter", "follow"},
 		{"q", "back"},
+	}},
+	{"LINK FORMS (what 'l' finds)", [][2]string{
+		{"path.go:42", "file at line 42"},
+		{"path.go#name", "file at a card or heading"},
+		{"path.go:Name", "file at the card named Name (after @see/ref:)"},
+		{"[txt](#slug)", "heading or card in this file"},
+		{"[txt](path.go)", "Markdown link; any form above works inside"},
+		{"@see Name", "card named Name in this file (so does ref: Name)"},
+		{"https://...", "URL: listed, never opened from 9ed"},
+		{"in code files", "only comments are scanned, never code or strings"},
+		{"following", "opens in place (needs saved changes) or hands off to"},
+		{"", "another 9ed that has the file open; ^o returns"},
 	}},
 	{"BUFFER PICKER (b)", [][2]string{
 		{"j/k, up/down", "move"},

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sandgorgon/9p/server"
@@ -565,4 +566,45 @@ func TestHandoffUnderNS(t *testing.T) {
 			t.Errorf("path=%q stack=%d, want lib.go opened in place", m.path, len(m.backStack))
 		}
 	})
+}
+
+// TestHelpLinkFormsAreRecognized keeps the help screen's LINK FORMS
+// examples honest: each syntax-shaped example it shows must actually
+// scan as a link in a Markdown file.
+func TestHelpLinkFormsAreRecognized(t *testing.T) {
+	found := false
+	for _, l := range helpLines() {
+		if strings.HasPrefix(l, "LINK FORMS") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("help screen has no LINK FORMS section")
+	}
+	for _, ex := range []string{"path.go:42", "path.go#name", "[txt](#slug)", "[txt](path.go)", "@see Name", "ref: Name", "https://example.com"} {
+		src := []byte(ex + "\n")
+		cards := []deck.Card{{Span: [2]int{0, len(src)}}}
+		if got := deck.Links(src, cards, ".md")[0]; len(got) != 1 {
+			t.Errorf("%q: got %d links, want 1", ex, len(got))
+		}
+	}
+}
+
+func TestLinkHint(t *testing.T) {
+	m := &model{}
+	tests := []struct {
+		e    linkEntry
+		want string
+	}{
+		{linkEntry{action: linkToCard}, "jumps to that card"},
+		{linkEntry{action: linkToLine}, "jumps to that line"},
+		{linkEntry{action: linkToFile}, "opens that file"},
+		{linkEntry{link: deck.Link{URL: "https://x.y"}, note: "external URL"}, "doesn't open"},
+		{linkEntry{note: `no card named "x" in this file`}, "can't be followed"},
+	}
+	for _, tt := range tests {
+		if got := m.linkHint(tt.e); !strings.Contains(got, tt.want) {
+			t.Errorf("linkHint(%+v) = %q, want it to contain %q", tt.e, got, tt.want)
+		}
+	}
 }
