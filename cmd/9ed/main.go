@@ -28,6 +28,7 @@ import (
 	"github.com/sandgorgon/tui/input"
 	"github.com/sandgorgon/tui/layout"
 	"github.com/sandgorgon/tui/style"
+	"github.com/sandgorgon/tui/term"
 	"github.com/sandgorgon/tui/tui"
 	"github.com/sandgorgon/tui/widget"
 
@@ -219,6 +220,13 @@ func run() int {
 	// or any read failure just means no notes for this file, not an
 	// error opening it.
 	m.notesFile = readNotes(path)
+	// A second SIGWINCH watcher alongside tui.App's own (signal.Notify
+	// delivers to every registered channel): App resizes its frame
+	// buffer but never tells Update, and navView needs the width.
+	resizeWatcher := term.NewWatcher()
+	defer resizeWatcher.Stop()
+	m.resizes = resizeWatcher.Resize()
+	m.width = terminalCols()
 	if hasLine {
 		m.goToLine(targetLine)
 	}
@@ -512,6 +520,12 @@ type model struct {
 	// plumb.go) — Init's waitForP9Goto Cmd is the only reader, same
 	// single-goroutine convention as writes.
 	gotos chan p9GotoMsg
+
+	// width is the terminal's column count, kept current by resizes
+	// (see navrow.go's waitForResize) so navView can fit each row to it.
+	// 0 means unknown — rows are then left whole, as in tests.
+	width   int
+	resizes <-chan struct{}
 }
 
 func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg, gotos chan p9GotoMsg) *model {
@@ -681,7 +695,7 @@ func (m *model) statusBarNode(text string, fg cell.Style) tui.Node {
 }
 
 func (m *model) Init() tui.Cmd {
-	return tui.Batch(waitForP9Write(m.writes), waitForP9Goto(m.gotos))
+	return tui.Batch(waitForP9Write(m.writes), waitForP9Goto(m.gotos), waitForResize(m.resizes))
 }
 
 // waitForP9Write is the long-running "listen for an external write"
@@ -1071,6 +1085,10 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		m.view.publish(m.path, m.src, m.cards, m.edited)
 		v.result <- nil
 		return m, waitForP9Write(m.writes)
+
+	case resizeMsg:
+		m.width = v.cols
+		return m, waitForResize(m.resizes)
 
 	case p9GotoMsg:
 		// Applies regardless of current mode — same "external trigger
@@ -1466,16 +1484,20 @@ func (m *model) navView() tui.Node {
 	titles := make([]string, len(indices))
 	rowStyles := make([]cell.Style, len(indices))
 	cursorInList := 0
+	cursorTruncated := false
 	for pos, i := range indices {
 		c := m.cards[i]
 		mark := " "
 		if m.isDirty(i) {
 			mark = dirtyGlyph // unsaved body or note change
 		}
-		titles[pos] = fmt.Sprintf("%s %-9s %s%s", mark, c.Kind, c.Title, m.cardBadges(i))
+		prefix := fmt.Sprintf("%s %-9s ", mark, c.Kind)
+		row, truncated := fitNavRow(prefix, c.Title, m.cardBadges(i), m.width-navListChrome)
+		titles[pos] = row
 		rowStyles[pos] = m.cardBadgeStyle(i)
 		if i == m.cursor {
 			cursorInList = pos
+			cursorTruncated = truncated
 		}
 	}
 
@@ -1485,14 +1507,26 @@ func (m *model) navView() tui.Node {
 	if m.searching {
 		help = m.statusBarNode(m.searchHelpLine(indices), m.helpStyle())
 	} else {
-		help = m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  (%d cards)  —  j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit",
-			m.path, m.dirtyMark(), len(m.cards))), m.helpStyle())
+		help = m.statusBarNode(m.statusLine(m.navStatusText(cursorTruncated)), m.helpStyle())
 	}
 
 	return tui.Box(layout.Vertical,
 		tui.Child(layout.Fill(1), list),
 		tui.Child(layout.Length(1), help),
 	).Margin(1)
+}
+
+// navStatusText is Nav mode's status line before statusLine's notice/
+// error suffix: the path and card count, then the key hints — or, when
+// the highlighted card's row had to be shortened (see fitNavRow), its
+// full title in their place, since the hints are always one '?' away
+// and the title is otherwise unreadable.
+func (m *model) navStatusText(cursorTruncated bool) string {
+	head := fmt.Sprintf("%s%s  (%d cards)  —  ", m.path, m.dirtyMark(), len(m.cards))
+	if cursorTruncated {
+		return head + m.cards[m.cursor].Title
+	}
+	return head + "j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit"
 }
 
 // Glyphs for Nav mode's list line — single-width in any monospace

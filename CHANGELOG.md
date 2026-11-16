@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Nav mode fits each card's row to the terminal width: a long title is
+  shortened with `…` so its badges (⚑ ⚠ ✎ ↩N) stay visible, instead of
+  the row being cut off at the right edge. When the highlighted card's
+  title is shortened, the status line shows it in full in place of the
+  key hints (`?` still lists every key). Rows still never wrap — one row
+  per card.
+
 ## 0.11.0 - 2026-10-13
 
 - A bare `path.ext:LINE` / `path.ext#anchor` is now only a link if the
