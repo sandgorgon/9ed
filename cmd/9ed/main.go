@@ -92,6 +92,7 @@ Nav mode:
   l            list links in current card; enter to follow
   ^o           back to the file a link was followed from
   t            toggle light/dark theme
+  w            toggle line wrap in Edit mode
   ^s           save
   q, ^q        quit
 
@@ -99,6 +100,8 @@ Edit mode:
   esc          back to Nav
   ^↑ / ^↓      jump to previous / next card, staying in Edit
   ^n / ^p      jump to next / previous search match
+  ^w           toggle line wrap (on by default for Markdown and plain
+               text, off for code)
   ^c           copy selection
   ^x           cut selection
   ^v           paste (replaces selection, if any)
@@ -526,6 +529,35 @@ type model struct {
 	// 0 means unknown — rows are then left whole, as in tests.
 	width   int
 	resizes <-chan struct{}
+
+	// softWrap is whether Edit mode word-wraps long lines rather than
+	// scrolling them sideways (tui's TextAreaOptions.SoftWrap). Starts
+	// from the file type (see softWrapDefault) and is toggled by 'w' in
+	// Nav, Ctrl+W in Edit.
+	softWrap bool
+}
+
+// softWrapDefault is whether a file opened with seg starts with soft
+// wrap on: prose (Markdown, and plain text — anything 9ed has no
+// structure for) wraps; code, where a wrapped line reads as two
+// statements and sideways scrolling is the norm, doesn't.
+func softWrapDefault(seg deck.Segmenter) bool {
+	switch seg.(type) {
+	case deck.MarkdownSegmenter, deck.PlainSegmenter:
+		return true
+	}
+	return false
+}
+
+// toggleSoftWrap flips Edit mode's soft wrap and says so on the status
+// line, since in Nav mode nothing on screen changes yet.
+func (m *model) toggleSoftWrap() {
+	m.softWrap = !m.softWrap
+	if m.softWrap {
+		m.notice = "wrap: on"
+	} else {
+		m.notice = "wrap: off"
+	}
 }
 
 func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, writes chan p9WriteMsg, gotos chan p9GotoMsg) *model {
@@ -535,6 +567,7 @@ func newModel(path string, src []byte, seg deck.Segmenter, cards []deck.Card, wr
 		view: &bufferView{}, writes: writes, gotos: gotos,
 		notesFile: notes.New(),
 		refs:      deck.References(src, cards),
+		softWrap:  softWrapDefault(seg),
 	}
 }
 
@@ -1335,6 +1368,12 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 				m.goBack()
 				return m, nil
 			}
+			// Ctrl+W: toggle soft wrap — Nav's 'w', but a Ctrl chord
+			// here since plain letters are text while editing.
+			if v.Mod&input.ModCtrl != 0 && v.Rune == 'w' {
+				m.toggleSoftWrap()
+				return m, nil
+			}
 			// Ctrl+C/Ctrl+X/Ctrl+V: copy/cut/paste the active selection —
 			// available here at all because quit moved to Ctrl+Q above;
 			// see clipboard.go's doc comment for the full reasoning.
@@ -1425,6 +1464,10 @@ func (m *model) Update(msg tui.Msg) (tui.Model, tui.Cmd) {
 		}
 		if v.Rune == 't' {
 			m.toggleTheme()
+			return m, nil
+		}
+		if v.Rune == 'w' {
+			m.toggleSoftWrap()
 			return m, nil
 		}
 		if v.Rune == 'q' {
@@ -1526,7 +1569,7 @@ func (m *model) navStatusText(cursorTruncated bool) string {
 	if cursorTruncated {
 		return head + m.cards[m.cursor].Title
 	}
-	return head + "j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   q: quit"
+	return head + "j/k: move   gg/G: first/last   PgUp/PgDn: page   {n}G: goto line   /: search   enter: edit   n: note   f/r: flag   u: revert   o/O: insert   b: buffers   ^s: save   t: theme   w: wrap   q: quit"
 }
 
 // Glyphs for Nav mode's list line — single-width in any monospace
@@ -1683,6 +1726,7 @@ func (m *model) editView() tui.Node {
 		// configured release key.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
 		Frameless:  true,
+		SoftWrap:   m.softWrap,
 	}).Key(editKey{card.Span, m.jumpGen})
 	// Keyed by the card's own Span, not m.cursor — TextArea's Value is
 	// only applied at mount (tui's reconciler otherwise matches by tree
@@ -1704,7 +1748,7 @@ func (m *model) editView() tui.Node {
 	// setJumpTarget) — Span is unchanged there, so without jumpGen the
 	// existing widget instance would be reused and never see the new
 	// InitialCursor at all.
-	help := m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^c/^x/^v: copy/cut/paste   ^s: save   ^q: quit", m.path, m.dirtyMark(), card.Kind)),
+	help := m.statusBarNode(m.statusLine(fmt.Sprintf("%s%s  [%s]  —  esc: back to nav   ^up/^down: prev/next card   ^w: wrap   ^c/^x/^v: copy/cut/paste   ^s: save   ^q: quit", m.path, m.dirtyMark(), card.Kind)),
 		m.helpStyle())
 
 	return tui.Box(layout.Vertical,
@@ -1734,6 +1778,9 @@ func (m *model) noteView() tui.Node {
 		// or the m.noteEditing case in Update never sees it.
 		ReleaseKey: input.KeyEvent{Key: input.KeyEsc, Mod: input.ModCtrl},
 		Frameless:  true,
+		// Notes are always Markdown prose, whatever the file is, so
+		// they always wrap rather than following m.softWrap.
+		SoftWrap: true,
 	}).Key(card.Span)
 
 	help := m.statusBarNode(m.statusLine(fmt.Sprintf("Note for: %s%s  —  esc: back   ^s: save", card.Title, m.dirtyMark())), m.helpStyle())
@@ -1784,6 +1831,7 @@ var helpSections = []helpSection{
 		{"l", "links in this card"},
 		{"^o", "back to previous file (after a link)"},
 		{"t", "toggle theme"},
+		{"w", "toggle line wrap in edit mode"},
 		{"q", "quit"},
 		{"?", "toggle this help"},
 	}},
@@ -1792,6 +1840,7 @@ var helpSections = []helpSection{
 		{"^up / ^down", "prev / next card"},
 		{"^n / ^p", "next / prev search match"},
 		{"^o", "back to previous file (after a link)"},
+		{"^w", "toggle line wrap"},
 		{"^c", "copy selection"},
 		{"^x", "cut selection"},
 		{"^v", "paste (replaces selection)"},
