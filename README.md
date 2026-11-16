@@ -13,7 +13,7 @@ modules in the same family, [`9vcs`](https://github.com/sandgorgon/9vcs) and
 [`9auth`](https://github.com/sandgorgon/9auth), are deliberately *not*
 dependencies — see [Why no `9auth`](#why-no-9auth) below.
 
-Status (`v0.12.0`): M0–M12 implemented —
+Status (`v0.13.0`): M0–M12 implemented —
 deck segmentation for all six target languages (Markdown, Go, Bash,
 C/C++, Haskell, `kyu`, plus a plain-text fallback for anything else),
 Nav/Edit mode shell with `o`/`O` card insertion, `gg`/`G`/`PgUp`/`PgDn`/
@@ -34,7 +34,8 @@ precise go-to-line, line numbers
 in a themed gutter, syntax highlighting for all six target languages (see
 [Syntax highlighting](#syntax-highlighting) below), mouse click/scroll in Nav
 mode (see [Mouse support](#mouse-support) below), atomic save, a runtime
-light/dark theme toggle (`t`), a 9P server
+light/dark theme toggle (`t`), soft line wrap in Edit mode (`w`/`Ctrl+W`,
+see [Line wrapping](#line-wrapping) below), a 9P server
 surface for a running buffer with a writable `/cards/<n>/body` and
 `/goto`, namespace-aware open/save with support for opening a
 nonexistent path to create a new file (see
@@ -142,6 +143,7 @@ even installed it, or searching this page.
 | `l` | List the card's links; `Enter` follows one |
 | `Ctrl+O` | Back to the file a link was followed from |
 | `t` | Toggle light/dark theme |
+| `w` | Toggle line wrap in Edit mode (see [Line wrapping](#line-wrapping)) |
 | `q` | Quit |
 | `?` | Toggle this help screen |
 
@@ -153,6 +155,7 @@ even installed it, or searching this page.
 | `Ctrl+↑` / `Ctrl+↓` | Jump to the previous / next card, staying in Edit mode |
 | `Ctrl+N` / `Ctrl+P` | Next / previous search match |
 | `Ctrl+O` | Back to the file a link was followed from |
+| `Ctrl+W` | Toggle line wrap (see [Line wrapping](#line-wrapping)) |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste the selection |
 | `Ctrl+S` | Save |
 
@@ -249,6 +252,27 @@ categories: heading, bold, italic, strikethrough, inline/fenced code,
 link, image, blockquote, list marker, and horizontal rule — each styled
 distinctly (a link/image is underlined; bold/italic/strikethrough add
 only an attribute, leaving color alone).
+
+## Line wrapping
+
+In Edit mode, a line wider than the screen is either **wrapped** onto
+the following rows at word boundaries, or left on one row that
+**scrolls sideways** as the cursor moves along it. Wrapping is on by
+default for Markdown and plain-text files and off for code (Go, Bash,
+C/C++, Haskell, `kyu`), where a wrapped line reads like two statements.
+`w` in Nav mode or `Ctrl+W` in Edit mode toggles it for the rest of
+the session; opening another file through a link goes back to that
+file type's default. Card notes always wrap.
+
+Wrapping only changes how a line is shown — the file itself never
+gains line breaks. While wrapped, `↑`/`↓` and `PgUp`/`PgDn` move by
+screen row, `Home`/`End` still go to the start/end of the whole line,
+and the line-number gutter shows each line's number on its first row
+only.
+
+Nav mode's card list never wraps: each card stays one row, with a long
+title shortened (`…`) so its badges stay visible, and the highlighted
+card's full title shown on the status line.
 
 ## Namespace-aware file I/O
 
@@ -424,9 +448,10 @@ card — the mouse equivalent of moving the cursor there with `j`/`k`
 then pressing `Enter` — and the wheel to scroll, one card per tick,
 the same granularity as `j`/`k`. 9ed enables SGR mouse reporting
 around its own `tui.App.Run` for this, since `tui` leaves that off by
-default (not every app wants click-to-focus). Scoped to Nav mode's own
-card list only; the directory browser and buffer picker stay
-keyboard-only for now.
+default (not every app wants click-to-focus). In Edit mode, a click
+places the cursor and a drag selects text (`tui`'s own `TextArea`
+handling), on wrapped rows too. The directory browser and buffer picker
+stay keyboard-only for now.
 
 ## Plumbing
 
@@ -500,7 +525,7 @@ for the (now-resolved, as of `9sh` v0.3.1) gap this uncovered.
 |---|---|
 | `github.com/sandgorgon/9p` | v0.10.0 |
 | `github.com/sandgorgon/9sh` | v0.12.0 |
-| `github.com/sandgorgon/tui` | v0.12.0 |
+| `github.com/sandgorgon/tui` | v0.13.0 |
 
 `9vcs` and `9auth` are siblings in the same Plan-9-flavored family but are
 not 9ed dependencies — see [Why no `9auth`](#why-no-9auth) above.
