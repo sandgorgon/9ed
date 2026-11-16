@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 - 2026-11-15
 
 - Edit mode can soft-wrap long lines at word boundaries instead of
   scrolling them sideways. On by default for Markdown and plain text,
