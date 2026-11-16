@@ -437,7 +437,9 @@ func readNotes(path string) *notes.Sidecar {
 // search, selection, notes, and the published 9P snapshot. What
 // deliberately survives is the yank register — copying a card in one
 // file and pasting it in another is a main use of following a link —
-// and the theme.
+// and the theme. Soft wrap goes back to the new file type's default
+// (see softWrapDefault): a toggle made for prose shouldn't follow you
+// into code, or vice versa.
 func (m *model) openFile(path string, src []byte, seg deck.Segmenter, cards []deck.Card) {
 	m.cancelPendingNav()
 	m.path, m.src, m.seg, m.cards = path, src, seg, cards
@@ -451,6 +453,7 @@ func (m *model) openFile(path string, src []byte, seg deck.Segmenter, cards []de
 	m.clearEditSelection()
 	m.notesFile = readNotes(path)
 	m.refs = deck.References(src, cards)
+	m.softWrap = softWrapDefault(seg)
 	m.view.publish(m.path, m.src, m.cards, m.edited)
 	if m.onPathChange != nil {
 		m.onPathChange(path)

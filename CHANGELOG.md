@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Edit mode can soft-wrap long lines at word boundaries instead of
+  scrolling them sideways. On by default for Markdown and plain text,
+  off for code; toggle with `w` in Nav mode or `Ctrl+W` in Edit mode.
+  Display only — the file never gains line breaks. While wrapped,
+  `↑`/`↓`/`PgUp`/`PgDn` move by screen row, `Home`/`End` by whole line.
+  Card notes always wrap. Requires `tui` v0.13.0.
+- Fixed (in `tui`): clicking in Edit mode landed the cursor too far
+  right by the width of the line-number gutter.
+
 ## 0.12.0 - 2026-11-15
 
 - Nav mode fits each card's row to the terminal width: a long title is
