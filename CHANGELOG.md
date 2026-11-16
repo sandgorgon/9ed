@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-11-15
 
 - Nav mode fits each card's row to the terminal width: a long title is
   shortened with `…` so its badges (⚑ ⚠ ✎ ↩N) stay visible, instead of
